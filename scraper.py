@@ -251,16 +251,37 @@ def collect_attendance(
     for driver_name in sorted(driver_sessions):
         count = len(driver_sessions[driver_name])
         sessions = sorted(driver_session_names[driver_name])
+        fastest_seconds = driver_fastest_seconds.get(driver_name, float("inf"))
+        meets_minimum = count >= minimum_practices
         summary_rows.append(
             {
                 "driver": driver_name,
                 "counted_practices": count,
                 "fastest_time_overall": driver_fastest_time_text.get(driver_name, ""),
                 "total_laps_overall": driver_total_laps.get(driver_name, 0),
-                "meets_minimum": "Yes" if count >= minimum_practices else "No",
+                "meets_minimum": "Yes" if meets_minimum else "No",
                 "counted_sessions": " | ".join(sessions),
+                "_sort_fastest_seconds": fastest_seconds,
+                "_sort_meets_minimum": meets_minimum,
             }
         )
+
+    # Default ranking requested by coaches:
+    # 1) Qualified drivers first (made the cut), then non-qualified.
+    # 2) Within each group, fastest lap first.
+    # 3) Tie-break by practice count (higher first), then name.
+    summary_rows.sort(
+        key=lambda row: (
+            not row["_sort_meets_minimum"],
+            row["_sort_fastest_seconds"],
+            -row["counted_practices"],
+            row["driver"].lower(),
+        )
+    )
+
+    for row in summary_rows:
+        row.pop("_sort_fastest_seconds", None)
+        row.pop("_sort_meets_minimum", None)
 
     raw_rows = [
         {
