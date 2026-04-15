@@ -56,6 +56,7 @@ class AttendanceApp:
 
         columns = (
             "driver",
+            "kart_number",
             "counted_practices",
             "fastest_time_overall",
             "total_laps_overall",
@@ -71,6 +72,7 @@ class AttendanceApp:
             )
 
         self.table.column("driver", width=220, anchor="w")
+        self.table.column("kart_number", width=90, anchor="center")
         self.table.column("counted_practices", width=140, anchor="center")
         self.table.column("fastest_time_overall", width=140, anchor="center")
         self.table.column("total_laps_overall", width=130, anchor="center")
@@ -264,6 +266,7 @@ class AttendanceApp:
             rows,
             [
                 "driver",
+                "kart_number",
                 "counted_practices",
                 "fastest_time_overall",
                 "total_laps_overall",
@@ -286,7 +289,11 @@ class AttendanceApp:
         if not path:
             return
 
-        self._write_csv(path, rows, ["session_name", "session_url", "driver", "time", "laps"])
+        self._write_csv(
+            path,
+            rows,
+            ["session_name", "session_url", "driver", "kart_number", "time", "laps"],
+        )
         messagebox.showinfo("Saved", f"Raw records saved to {Path(path).name}")
 
     @staticmethod
