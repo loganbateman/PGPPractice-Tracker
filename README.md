@@ -18,26 +18,12 @@ A lightweight desktop app (Tkinter) that calculates who meets Purdue Grand Prix'
   - `attendance_summary.csv`
   - `attendance_raw_records.csv` (includes per-session lap counts)
 
-## Setup (Windows PowerShell)
-
-> If you cloned with `git clone ...`, you **must** `cd` into the repo folder before running `python app.py`.
-
-```powershell
-git clone https://github.com/<your-username>/PGPPractice-Tracker.git
-cd PGPPractice-Tracker
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
-
-## Setup (macOS / Linux)
+## Setup
 
 ```bash
-git clone https://github.com/<your-username>/PGPPractice-Tracker.git
-cd PGPPractice-Tracker
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 ## Run the app
@@ -45,8 +31,6 @@ python -m pip install -r requirements.txt
 ```bash
 python app.py
 ```
-
-If the app opens, you're good. If it fails, check troubleshooting below.
 
 ## How to test it first (recommended)
 
@@ -124,50 +108,10 @@ If a session fails to parse due to a layout change, the app reports warnings and
 
 ## Troubleshooting
 
-### `ModuleNotFoundError: No module named 'pandas'`
-
-This usually means Python is running a **different `app.py`** than this repo's file.
-Your screenshot shows `File "D:\\Downloads\\app.py"`, which is not the cloned repo path.
-
-Fix:
-
-```powershell
-cd D:\Downloads\PGPPractice-Tracker
-.\.venv\Scripts\Activate.ps1
-python app.py
-```
-
-Optional sanity check to confirm you're in the right folder:
-
-```powershell
-pwd
-dir app.py
-```
-
-The app in this repo does **not** require `pandas`.
-
-### `ModuleNotFoundError` for another package
-
-Reinstall deps from inside the repo and active venv:
+- If you see `ModuleNotFoundError`, install dependencies again:
 
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-### PowerShell blocks activate script
-
-Run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-### `python` command not found
-
-Try:
-
-```powershell
-py -3 -m venv .venv
-py -3 app.py
-```
+- The current scraper no longer depends on `bs4` / BeautifulSoup.

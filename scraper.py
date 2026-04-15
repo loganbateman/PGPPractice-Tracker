@@ -188,7 +188,10 @@ def _parse_single_session_csv(session_url: str) -> List[SessionAttendance]:
 
 
 def _parse_single_session(session_url: str) -> List[SessionAttendance]:
-    return _parse_single_session_csv(session_url)
+    try:
+        return _parse_single_session_csv(session_url)
+    except requests.RequestException:
+        return _parse_single_session_html(session_url)
 
 
 def _normalize_manual_links(multiline_value: str) -> List[str]:
@@ -216,9 +219,8 @@ def collect_attendance(
     else:
         session_links = _find_session_links_from_api(event_url)
         if not session_links:
-            raise SpeedhiveScrapeError(
-                "No session links were discovered from the Speedhive Event Results API."
-            )
+            event_html = _get_html(event_url)
+            session_links = _find_session_links(event_html, event_url)
 
     driver_sessions: Dict[str, Set[str]] = defaultdict(set)
     driver_session_names: Dict[str, Set[str]] = defaultdict(set)
