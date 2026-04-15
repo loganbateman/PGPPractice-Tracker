@@ -12,10 +12,11 @@ from scraper import collect_attendance
 class AttendanceApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("PGP Practice Attendance Checker")
+        self.root.title("PGP Practice Dashboard")
         self.root.geometry("1080x700")
 
         self.results: dict | None = None
+        self.sort_descending: dict[str, bool] = {}
 
         self.event_url_var = tk.StringVar()
         self.min_practice_var = tk.StringVar(value="4")
@@ -26,12 +27,18 @@ class AttendanceApp:
         frame = ttk.Frame(self.root, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="Speedhive Event URL:").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            frame,
+            text="Speedhive Event URL:",
+            font=("Segoe UI", 10, "bold"),
+        ).grid(row=0, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.event_url_var, width=100).grid(
             row=1, column=0, columnspan=3, sticky="ew", pady=(0, 10)
         )
 
-        ttk.Label(frame, text="Minimum practices required:").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="Minimum practices to make the cut:").grid(
+            row=2, column=0, sticky="w"
+        )
         ttk.Entry(frame, textvariable=self.min_practice_var, width=10).grid(
             row=2, column=1, sticky="w"
         )
@@ -57,7 +64,11 @@ class AttendanceApp:
         )
         self.table = ttk.Treeview(frame, columns=columns, show="headings", height=16)
         for col in columns:
-            self.table.heading(col, text=col.replace("_", " ").title())
+            self.table.heading(
+                col,
+                text=col.replace("_", " ").title(),
+                command=lambda c=col: self.sort_table(c),
+            )
 
         self.table.column("driver", width=220, anchor="w")
         self.table.column("counted_practices", width=140, anchor="center")
@@ -66,6 +77,8 @@ class AttendanceApp:
         self.table.column("meets_minimum", width=120, anchor="center")
         self.table.column("counted_sessions", width=420, anchor="w")
         self.table.grid(row=5, column=0, columnspan=3, sticky="nsew")
+        self.table.tag_configure("made_cut", background="#eefbf2")
+        self.table.tag_configure("missed_cut", background="#fff7ef")
 
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scrollbar.set)
@@ -90,7 +103,10 @@ class AttendanceApp:
         )
         self.export_raw_button.pack(side=tk.LEFT, padx=8)
 
-        self.status_label = ttk.Label(frame, text="Ready.")
+        self.status_label = ttk.Label(
+            frame,
+            text="Ready. Tip: click any column heading to sort.",
+        )
         self.status_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         frame.columnconfigure(0, weight=1)
@@ -133,19 +149,7 @@ class AttendanceApp:
 
     def _on_success(self, result: dict) -> None:
         self.results = result
-        for row in result["summary_rows"]:
-            self.table.insert(
-                "",
-                tk.END,
-                values=(
-                    row["driver"],
-                    row["counted_practices"],
-                    row["fastest_time_overall"],
-                    row["total_laps_overall"],
-                    row["meets_minimum"],
-                    row["counted_sessions"],
-                ),
-            )
+        self._render_table_rows(result["summary_rows"])
 
         summary_count = len(result["summary_rows"])
         session_count = len(result["session_links"])
@@ -172,6 +176,75 @@ class AttendanceApp:
     def _clear_table(self) -> None:
         for item in self.table.get_children():
             self.table.delete(item)
+
+    def _render_table_rows(self, rows: list[dict]) -> None:
+        self._clear_table()
+        for row in rows:
+            meets_minimum = row["meets_minimum"] == "Yes"
+            tag = "made_cut" if meets_minimum else "missed_cut"
+            self.table.insert(
+                "",
+                tk.END,
+                values=(
+                    row["driver"],
+                    row["counted_practices"],
+                    row["fastest_time_overall"],
+                    row["total_laps_overall"],
+                    row["meets_minimum"],
+                    row["counted_sessions"],
+                ),
+                tags=(tag,),
+            )
+
+    def sort_table(self, column: str) -> None:
+        if not self.results:
+            return
+
+        descending = self.sort_descending.get(column, False)
+        rows = list(self.results["summary_rows"])
+
+        if column == "driver":
+            key_fn = lambda row: row["driver"].lower()
+        elif column in {"counted_practices", "total_laps_overall"}:
+            key_fn = lambda row: int(row[column])
+        elif column == "fastest_time_overall":
+            key_fn = lambda row: self._parse_time_for_sort(row[column])
+        elif column == "meets_minimum":
+            key_fn = lambda row: 1 if row[column] == "Yes" else 0
+        else:
+            key_fn = lambda row: row[column].lower()
+
+        rows.sort(key=key_fn, reverse=descending)
+        self.sort_descending[column] = not descending
+        self.results["summary_rows"] = rows
+        self._render_table_rows(rows)
+
+        sort_order = "descending" if descending else "ascending"
+        self.status_label.config(
+            text=f"Sorted by {column.replace('_', ' ')} ({sort_order})."
+        )
+
+    @staticmethod
+    def _parse_time_for_sort(value: str) -> float:
+        raw = value.strip()
+        if not raw:
+            return float("inf")
+
+        cleaned = raw.replace(",", ".")
+        if ":" in cleaned:
+            parts = cleaned.split(":")
+            try:
+                if len(parts) == 2:
+                    return int(parts[0]) * 60 + float(parts[1])
+                if len(parts) == 3:
+                    return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            except ValueError:
+                return float("inf")
+        try:
+            parsed = float(cleaned)
+            return parsed if parsed > 0 else float("inf")
+        except ValueError:
+            return float("inf")
 
     def export_summary(self) -> None:
         if not self.results:
