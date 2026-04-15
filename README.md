@@ -101,7 +101,17 @@ The executable will be created in `dist/app.exe`.
 
 Speedhive pages can vary by event/session layout. This app includes:
 
-- automatic session discovery from an event page
+- automatic session discovery from Speedhive's Event Results API
 - optional manual session links (paste one URL per line in the app)
 
 If a session fails to parse due to a layout change, the app reports warnings and continues processing other sessions.
+
+## Troubleshooting
+
+- If you see `ModuleNotFoundError`, install dependencies again:
+
+```bash
+pip install -r requirements.txt
+```
+
+- The current scraper no longer depends on `bs4` / BeautifulSoup.

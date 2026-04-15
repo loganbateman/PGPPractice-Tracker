@@ -6,10 +6,8 @@ import io
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
-from urllib.parse import urljoin
 
 import requests
-from bs4 import BeautifulSoup
 
 EVENT_RESULTS_API_BASE = "https://eventresults-api.speedhive.com/api/v0.2.3/eventresults"
 USER_AGENT = (
@@ -31,16 +29,6 @@ class SessionAttendance:
 
 class SpeedhiveScrapeError(RuntimeError):
     """Raised when Speedhive pages cannot be parsed."""
-
-
-def _get_html(url: str, timeout: int = 20) -> str:
-    response = requests.get(
-        url,
-        timeout=timeout,
-        headers={"User-Agent": USER_AGENT},
-    )
-    response.raise_for_status()
-    return response.text
 
 
 def _get_json(url: str, timeout: int = 20) -> dict:
@@ -86,28 +74,6 @@ def _is_time_recorded(raw_value: str) -> bool:
     return bool(re.search(r"\d", value))
 
 
-def _find_session_links(event_html: str, event_url: str) -> List[str]:
-    soup = BeautifulSoup(event_html, "html.parser")
-    links: Set[str] = set()
-
-    for a_tag in soup.select("a[href]"):
-        href = a_tag.get("href", "")
-        if re.search(r"/sessions?/\d+", href, re.IGNORECASE):
-            links.add(urljoin(event_url, href))
-
-    for match in re.findall(r'["\'](/sessions?/\d+)["\']', event_html, flags=re.IGNORECASE):
-        links.add(urljoin(event_url, match))
-
-    sorted_links = sorted(links)
-    if not sorted_links:
-        raise SpeedhiveScrapeError(
-            "No session links were discovered on the event page. "
-            "You can paste direct session links into the app instead."
-        )
-
-    return sorted_links
-
-
 def _extract_event_id(event_url: str) -> Optional[str]:
     match = re.search(r"/events?/(\d+)", event_url, flags=re.IGNORECASE)
     return match.group(1) if match else None
@@ -136,34 +102,6 @@ def _find_session_links_from_api(event_url: str) -> List[str]:
                 links.add(f"https://speedhive.mylaps.com/sessions/{session_id}")
 
     return sorted(links)
-
-
-def _extract_table_headers(table) -> List[str]:
-    header_cells = table.select("thead tr th") or table.select("tr th")
-    return [_clean_text(cell.get_text(" ", strip=True)) for cell in header_cells]
-
-
-def _pick_driver_time_laps_indices(
-    headers: List[str],
-) -> tuple[Optional[int], Optional[int], Optional[int]]:
-    driver_idx: Optional[int] = None
-    time_idx: Optional[int] = None
-    laps_idx: Optional[int] = None
-
-    for idx, header in enumerate(headers):
-        h = header.lower()
-        if driver_idx is None and any(
-            token in h for token in ("driver", "name", "participant", "competitor")
-        ):
-            driver_idx = idx
-        if time_idx is None and any(token in h for token in ("best lap", "time")):
-            time_idx = idx
-        if laps_idx is None and "laps" in h:
-            laps_idx = idx
-
-    return driver_idx, time_idx, laps_idx
-
-
 def _parse_time_to_seconds(raw_value: str) -> Optional[float]:
     value = _clean_text(raw_value)
     if not _is_time_recorded(value):
@@ -203,67 +141,6 @@ def _parse_laps(raw_value: str) -> int:
     if not match:
         return 0
     return int(match.group())
-
-
-def _session_name_from_page(soup: BeautifulSoup) -> str:
-    for selector in ("h1", "h2", "title"):
-        node = soup.select_one(selector)
-        if node:
-            text = _clean_text(node.get_text(" ", strip=True))
-            if text:
-                return text
-    return "Unnamed Session"
-
-
-def _parse_single_session_html(session_url: str) -> List[SessionAttendance]:
-    html = _get_html(session_url)
-    soup = BeautifulSoup(html, "html.parser")
-    tables = soup.select("table")
-
-    session_name = _session_name_from_page(soup)
-    records: List[SessionAttendance] = []
-
-    for table in tables:
-        headers = _extract_table_headers(table)
-        if not headers:
-            continue
-
-        driver_idx, time_idx, laps_idx = _pick_driver_time_laps_indices(headers)
-        if driver_idx is None or time_idx is None:
-            continue
-
-        for row in table.select("tbody tr") or table.select("tr"):
-            cells = row.find_all(["td", "th"])
-            if not cells:
-                continue
-            if driver_idx >= len(cells) or time_idx >= len(cells):
-                continue
-            driver_name = _clean_text(cells[driver_idx].get_text(" ", strip=True))
-            time_value = _clean_text(cells[time_idx].get_text(" ", strip=True))
-            laps_value = 0
-            if laps_idx is not None and laps_idx < len(cells):
-                laps_value = _parse_laps(cells[laps_idx].get_text(" ", strip=True))
-            time_seconds = _parse_time_to_seconds(time_value)
-
-            if not driver_name:
-                continue
-            if time_seconds is None:
-                continue
-
-            records.append(
-                SessionAttendance(
-                    session_name=session_name,
-                    session_url=session_url,
-                    driver_name=driver_name,
-                    time_value=time_value,
-                    laps_value=laps_value,
-                    time_seconds=time_seconds,
-                )
-            )
-
-    return records
-
-
 def _parse_single_session_csv(session_url: str) -> List[SessionAttendance]:
     session_id = _extract_session_id(session_url)
     if not session_id:
