@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import threading
 import tkinter as tk
-from collections import defaultdict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -21,6 +20,7 @@ class SessionTrackerApp:
         self.sort_descending: dict[str, bool] = {}
         self.event_url_var = tk.StringVar()
         self.minimum_sessions_var = tk.StringVar(value="4")
+        self.selected_driver_var = tk.StringVar()
 
         self._configure_theme()
         self._build_ui()
@@ -196,6 +196,28 @@ class SessionTrackerApp:
         )
         self.status_label.grid(row=6, column=0, columnspan=4, sticky="w", pady=(12, 0))
 
+        fast_time_frame = ttk.Frame(card, style="Card.TFrame")
+        fast_time_frame.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+
+        ttk.Label(fast_time_frame, text="Driver fast times", style="FieldLabel.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        self.driver_dropdown = ttk.Combobox(
+            fast_time_frame,
+            textvariable=self.selected_driver_var,
+            state="readonly",
+            width=42,
+        )
+        self.driver_dropdown.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        self.driver_dropdown.bind("<<ComboboxSelected>>", self._on_driver_selected)
+
+        self.fast_times_label = ttk.Label(
+            fast_time_frame,
+            text="Run attendance to load weekly fast times per driver.",
+            style="Sub.TLabel",
+        )
+        self.fast_times_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
+
         card.columnconfigure(0, weight=1)
         card.rowconfigure(4, weight=1)
 
@@ -233,9 +255,9 @@ class SessionTrackerApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_success(self, result: dict) -> None:
-        result["summary_rows"] = self._rebuild_summary_rows(result)
         self.results = result
         self._render_table_rows(result["results"])
+        self._populate_driver_dropdown(result["results"])
         self.run_button.config(state=tk.NORMAL)
         self.export_button.config(state=tk.NORMAL)
         self.status_label.config(
@@ -249,6 +271,7 @@ class SessionTrackerApp:
         self.run_button.config(state=tk.NORMAL)
         self.export_button.config(state=tk.DISABLED)
         self.status_label.config(text="Failed to calculate attendance.")
+        self._populate_driver_dropdown([])
         messagebox.showerror("Attendance calculation failed", message)
 
     def _clear_table(self) -> None:
@@ -272,6 +295,34 @@ class SessionTrackerApp:
                 ),
                 tags=(tag,),
             )
+
+    def _populate_driver_dropdown(self, rows: list[dict]) -> None:
+        drivers = sorted(row["driver"] for row in rows)
+        self.driver_dropdown["values"] = drivers
+
+        if drivers:
+            self.selected_driver_var.set(drivers[0])
+            self._update_fast_times_text(drivers[0])
+        else:
+            self.selected_driver_var.set("")
+            self.fast_times_label.config(text="Run attendance to load weekly fast times per driver.")
+
+    def _on_driver_selected(self, event: tk.Event) -> None:
+        del event
+        self._update_fast_times_text(self.selected_driver_var.get())
+
+    def _update_fast_times_text(self, driver_name: str) -> None:
+        if not self.results or not driver_name:
+            self.fast_times_label.config(text="No fast-time data available.")
+            return
+
+        for row in self.results["results"]:
+            if row["driver"] == driver_name:
+                fast_times = row.get("fast_times") or "No valid lap times recorded."
+                self.fast_times_label.config(text=fast_times)
+                return
+
+        self.fast_times_label.config(text="No fast-time data available.")
 
     def sort_table(self, column: str) -> None:
         if not self.results:
@@ -316,6 +367,7 @@ class SessionTrackerApp:
                     "sessions_attended_count",
                     "over_minimum",
                     "sessions_attended",
+                    "fast_times",
                 ],
             )
             writer.writeheader()

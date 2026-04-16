@@ -180,7 +180,7 @@ def _normalize_driver_name(row: dict) -> str:
     )
 
 
-def collect_session_results(session_url: str) -> Dict[str, object]:
+def collect_session_results(session_url: str, session_name_hint: str | None = None) -> Dict[str, object]:
     """Collect leaderboard rows for a single Speedhive practice session."""
     session_id = _extract_session_id(session_url)
     if not session_id:
@@ -266,9 +266,14 @@ def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Di
     if not practice_sessions:
         raise SpeedhiveScrapeError("No practice sessions were found for this event.")
 
+    session_order = {
+        str(session.get("id")): index for index, session in enumerate(practice_sessions) if session.get("id")
+    }
+
     drivers: dict[str, dict] = {}
     for session in practice_sessions:
         session_id = session.get("id")
+        session_id_str = str(session_id) if session_id else ""
         session_name = _clean_text(session.get("name", "")) or f"Session {session_id}"
         if not session_id:
             continue
@@ -287,7 +292,8 @@ def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Di
                 continue
 
             best_lap = _clean_text(row.get("Best Lap") or row.get("Time") or "")
-            if _parse_time_to_seconds(best_lap) is None:
+            best_lap_seconds = _parse_time_to_seconds(best_lap)
+            if best_lap_seconds is None:
                 continue
 
             key = driver_name.lower()
@@ -296,34 +302,47 @@ def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Di
                 {
                     "driver": driver_name,
                     "kart_number": "",
-                    "total_laps": 0,
-                    "sessions_attended": [],
-                    "session_ids_attended": set(),
+                    "sessions": {},
                 },
             )
             kart_number = _extract_kart_number(row)
             if not entry["kart_number"] and kart_number:
                 entry["kart_number"] = kart_number
 
-            if session_id in entry["session_ids_attended"]:
-                continue
-
-            entry["session_ids_attended"].add(session_id)
-            entry["sessions_attended"].append(session_name)
-            entry["total_laps"] += _parse_laps(row.get("Laps") or "0")
+            laps = _parse_laps(row.get("Laps") or "0")
+            existing_session = entry["sessions"].get(session_id_str)
+            if not existing_session or best_lap_seconds < existing_session["best_lap_seconds"]:
+                entry["sessions"][session_id_str] = {
+                    "session_name": session_name,
+                    "best_lap": best_lap,
+                    "best_lap_seconds": best_lap_seconds,
+                    "laps": laps,
+                }
 
     total_practice_sessions = len(practice_sessions)
     rows = []
     for driver in drivers.values():
-        attended_count = len(driver["sessions_attended"])
+        sorted_sessions = sorted(
+            driver["sessions"].items(),
+            key=lambda item: session_order.get(item[0], 10**9),
+        )
+        sessions_attended = [session["session_name"] for _, session in sorted_sessions]
+        fast_times_list = [
+            f"{session['session_name']}: {session['best_lap']}"
+            for _, session in sorted_sessions
+        ]
+        total_laps = sum(session["laps"] for _, session in sorted_sessions)
+        attended_count = len(sessions_attended)
         rows.append(
             {
                 "kart_number": driver["kart_number"],
                 "driver": driver["driver"],
-                "total_laps": driver["total_laps"],
+                "total_laps": total_laps,
                 "over_minimum": "Yes" if attended_count >= minimum_sessions else "No",
-                "sessions_attended": ", ".join(driver["sessions_attended"]),
+                "sessions_attended": ", ".join(sessions_attended),
                 "sessions_attended_count": attended_count,
+                "fast_times": " | ".join(fast_times_list),
+                "fast_times_list": fast_times_list,
             }
         )
 
