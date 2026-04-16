@@ -189,7 +189,6 @@ class AttendanceApp:
                 tk.END,
                 values=(
                     row["driver"],
-                    row["kart_number"],
                     row["counted_practices"],
                     row["fastest_time_overall"],
                     row["total_laps_overall"],
@@ -210,8 +209,6 @@ class AttendanceApp:
             key_fn = lambda row: row["driver"].lower()
         elif column in {"counted_practices", "total_laps_overall"}:
             key_fn = lambda row: int(row[column])
-        elif column == "kart_number":
-            key_fn = lambda row: self._parse_kart_for_sort(row[column])
         elif column == "fastest_time_overall":
             key_fn = lambda row: self._parse_time_for_sort(row[column])
         elif column == "meets_minimum":
@@ -250,16 +247,6 @@ class AttendanceApp:
             return parsed if parsed > 0 else float("inf")
         except ValueError:
             return float("inf")
-
-    @staticmethod
-    def _parse_kart_for_sort(value: str) -> tuple[int, str]:
-        raw = value.strip()
-        if not raw:
-            return (10**9, "")
-        digits = "".join(ch for ch in raw if ch.isdigit())
-        if digits:
-            return (int(digits), raw.lower())
-        return (10**9 - 1, raw.lower())
 
     def export_summary(self) -> None:
         if not self.results:
