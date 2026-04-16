@@ -18,7 +18,7 @@ For each driver with a recorded lap time, the app shows:
 - Set minimum required practices (default `4`).
 - Only counts attendance when a driver has a recorded time in a session.
 - Sort any column in the results table.
-- Export participation results to CSV.
+- Export participation results to CSV (or `.xlsx` when optional `openpyxl` is installed).
 - Purdue-inspired black and gold UI styling.
 
 ## Setup
@@ -27,6 +27,8 @@ For each driver with a recorded lap time, the app shows:
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+# Optional (for native .xlsx export):
+# pip install openpyxl
 ```
 
 ## Run
