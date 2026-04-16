@@ -3,72 +3,148 @@ from __future__ import annotations
 import csv
 import threading
 import tkinter as tk
-from collections import defaultdict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from scraper import collect_attendance
+from scraper import SpeedhiveScrapeError, collect_session_results
 
 
-class AttendanceApp:
+class SessionTrackerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("PGP Practice Dashboard")
-        self.root.geometry("1080x700")
+        self.root.title("PGP Practice Session Tracker")
+        self.root.geometry("1200x760")
+        self.root.minsize(980, 640)
 
         self.results: dict | None = None
         self.sort_descending: dict[str, bool] = {}
+        self.session_url_var = tk.StringVar()
 
-        self.event_url_var = tk.StringVar()
-        self.min_practice_var = tk.StringVar(value="4")
-
+        self._configure_theme()
         self._build_ui()
 
-    def _build_ui(self) -> None:
-        frame = ttk.Frame(self.root, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
+    def _configure_theme(self) -> None:
+        self.colors = {
+            "bg": "#0f1115",
+            "panel": "#1b1f2a",
+            "surface": "#232837",
+            "gold": "#cfb991",
+            "gold_bright": "#f4d35e",
+            "text": "#f5f2e9",
+            "muted": "#b7ae9c",
+            "row_alt": "#202635",
+        }
 
-        ttk.Label(
-            frame,
-            text="Speedhive Event URL:",
+        self.root.configure(bg=self.colors["bg"])
+        style = ttk.Style()
+        style.theme_use("clam")
+
+        style.configure("Root.TFrame", background=self.colors["bg"])
+        style.configure("Card.TFrame", background=self.colors["panel"])
+        style.configure(
+            "Header.TLabel",
+            background=self.colors["panel"],
+            foreground=self.colors["gold_bright"],
+            font=("Segoe UI", 20, "bold"),
+        )
+        style.configure(
+            "Sub.TLabel",
+            background=self.colors["panel"],
+            foreground=self.colors["muted"],
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "FieldLabel.TLabel",
+            background=self.colors["panel"],
+            foreground=self.colors["text"],
             font=("Segoe UI", 10, "bold"),
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.event_url_var, width=100).grid(
-            row=1, column=0, columnspan=3, sticky="ew", pady=(0, 10)
+        )
+        style.configure(
+            "Modern.TButton",
+            background=self.colors["gold"],
+            foreground="#15171f",
+            borderwidth=0,
+            focusthickness=2,
+            focuscolor=self.colors["gold_bright"],
+            padding=(16, 10),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Modern.TButton",
+            background=[("active", self.colors["gold_bright"]), ("disabled", "#756b5b")],
+            foreground=[("disabled", "#d0c4ad")],
         )
 
-        ttk.Label(frame, text="Minimum practices to make the cut:").grid(
+        style.configure(
+            "Modern.Treeview",
+            background=self.colors["surface"],
+            fieldbackground=self.colors["surface"],
+            foreground=self.colors["text"],
+            borderwidth=0,
+            rowheight=34,
+            font=("Segoe UI", 10),
+        )
+        style.map(
+            "Modern.Treeview",
+            background=[("selected", "#3a2f16")],
+            foreground=[("selected", self.colors["gold_bright"])],
+        )
+        style.configure(
+            "Modern.Treeview.Heading",
+            background="#151925",
+            foreground=self.colors["gold_bright"],
+            relief="flat",
+            borderwidth=0,
+            font=("Segoe UI", 10, "bold"),
+            padding=(8, 8),
+        )
+        style.map("Modern.Treeview.Heading", background=[("active", "#1f2535")])
+
+    def _build_ui(self) -> None:
+        root_frame = ttk.Frame(self.root, style="Root.TFrame", padding=16)
+        root_frame.pack(fill=tk.BOTH, expand=True)
+
+        card = ttk.Frame(root_frame, style="Card.TFrame", padding=18)
+        card.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(card, text="PGP Practice Session Tracker", style="Header.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(
+            card,
+            text="Single-session mode: paste one Speedhive session URL and rank drivers by best lap.",
+            style="Sub.TLabel",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 14))
+
+        ttk.Label(card, text="Speedhive Session URL", style="FieldLabel.TLabel").grid(
             row=2, column=0, sticky="w"
         )
-        ttk.Entry(frame, textvariable=self.min_practice_var, width=10).grid(
-            row=2, column=1, sticky="w"
+        ttk.Entry(card, textvariable=self.session_url_var, width=120).grid(
+            row=3, column=0, columnspan=2, sticky="ew", pady=(5, 12)
         )
 
-        self.run_button = ttk.Button(frame, text="Run Attendance Check", command=self.run_check)
-        self.run_button.grid(row=2, column=2, sticky="e")
-
-        ttk.Label(
-            frame,
-            text="Optional: paste direct session URLs (one per line) to skip event-page discovery:",
-        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
-
-        self.session_text = tk.Text(frame, height=6, wrap="word")
-        self.session_text.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=(0, 10))
-
-        columns = (
-            "kart_number",
-            "driver",
-            "kart_number",
-            "counted_practices",
-            "fastest_time_overall",
-            "total_laps_overall",
-            "meets_minimum",
-            "counted_sessions",
+        self.run_button = ttk.Button(
+            card,
+            text="Load Session",
+            style="Modern.TButton",
+            command=self.run_check,
         )
-        self.table = ttk.Treeview(frame, columns=columns, show="headings", height=16)
-        # Hide the implicit tree column to prevent the blank tile on the far left.
-        self.table.column("#0", width=0, stretch=False)
-        self.table.heading("#0", text="")
+        self.run_button.grid(row=3, column=2, sticky="e", padx=(10, 0))
+
+        columns = ("position", "driver", "kart_number", "best_lap", "laps")
+        self.table = ttk.Treeview(
+            card,
+            columns=columns,
+            show="headings",
+            style="Modern.Treeview",
+            height=16,
+        )
+        self.table.column("position", width=90, anchor="center")
+        self.table.column("driver", width=360, anchor="w")
+        self.table.column("kart_number", width=120, anchor="center")
+        self.table.column("best_lap", width=140, anchor="center")
+        self.table.column("laps", width=100, anchor="center")
+
         for col in columns:
             self.table.heading(
                 col,
@@ -76,111 +152,72 @@ class AttendanceApp:
                 command=lambda c=col: self.sort_table(c),
             )
 
-        self.table.column("kart_number", width=90, anchor="center")
-        self.table.column("driver", width=220, anchor="w")
-        self.table.column("kart_number", width=90, anchor="center")
-        self.table.column("counted_practices", width=140, anchor="center")
-        self.table.column("fastest_time_overall", width=140, anchor="center")
-        self.table.column("total_laps_overall", width=130, anchor="center")
-        self.table.column("meets_minimum", width=120, anchor="center")
-        self.table.column("counted_sessions", width=420, anchor="w")
-        self.table.grid(row=5, column=0, columnspan=3, sticky="nsew")
-        self.table.tag_configure("made_cut", background="#eefbf2")
-        self.table.tag_configure("missed_cut", background="#fff7ef")
+        self.table.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
+        self.table.tag_configure("row_odd", background=self.colors["surface"])
+        self.table.tag_configure("row_even", background=self.colors["row_alt"])
 
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.table.yview)
+        scrollbar = ttk.Scrollbar(card, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scrollbar.set)
-        scrollbar.grid(row=5, column=3, sticky="ns")
+        scrollbar.grid(row=4, column=3, sticky="ns", pady=(8, 0))
 
-        button_row = ttk.Frame(frame)
-        button_row.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        button_row = ttk.Frame(card, style="Card.TFrame")
+        button_row.grid(row=5, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
-        self.export_summary_button = ttk.Button(
+        self.export_button = ttk.Button(
             button_row,
-            text="Export Summary CSV",
-            command=self.export_summary,
+            text="Export Session CSV",
+            style="Modern.TButton",
+            command=self.export_results,
             state=tk.DISABLED,
         )
-        self.export_summary_button.pack(side=tk.LEFT)
-
-        self.export_raw_button = ttk.Button(
-            button_row,
-            text="Export Raw Records CSV",
-            command=self.export_raw,
-            state=tk.DISABLED,
-        )
-        self.export_raw_button.pack(side=tk.LEFT, padx=8)
+        self.export_button.pack(side=tk.LEFT)
 
         self.status_label = ttk.Label(
-            frame,
-            text="Ready. Tip: click any column heading to sort.",
+            card,
+            text="Ready.",
+            style="Sub.TLabel",
         )
-        self.status_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.status_label.grid(row=6, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(5, weight=1)
+        card.columnconfigure(0, weight=1)
+        card.rowconfigure(4, weight=1)
 
     def run_check(self) -> None:
-        event_url = self.event_url_var.get().strip()
-        if not event_url:
-            messagebox.showerror("Missing URL", "Please provide a Speedhive event URL.")
+        session_url = self.session_url_var.get().strip()
+        if not session_url:
+            messagebox.showerror("Missing URL", "Please provide a Speedhive session URL.")
             return
-
-        try:
-            minimum_practices = int(self.min_practice_var.get())
-            if minimum_practices < 1:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror("Invalid minimum", "Minimum practices must be a positive integer.")
-            return
-
-        manual_links_text = self.session_text.get("1.0", tk.END).strip()
 
         self.run_button.config(state=tk.DISABLED)
-        self.export_summary_button.config(state=tk.DISABLED)
-        self.export_raw_button.config(state=tk.DISABLED)
-        self.status_label.config(text="Running... this may take a minute.")
+        self.export_button.config(state=tk.DISABLED)
+        self.status_label.config(text="Loading session... this may take a moment.")
         self._clear_table()
 
         def worker() -> None:
             try:
-                result = collect_attendance(
-                    event_url=event_url,
-                    minimum_practices=minimum_practices,
-                    manual_session_links_text=manual_links_text,
-                )
+                result = collect_session_results(session_url=session_url)
                 self.root.after(0, lambda: self._on_success(result))
-            except Exception as exc:
+            except (SpeedhiveScrapeError, ValueError, RuntimeError) as exc:
                 self.root.after(0, lambda: self._on_error(str(exc)))
+            except Exception as exc:  # pragma: no cover
+                self.root.after(0, lambda: self._on_error(f"Unexpected error: {exc}"))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_success(self, result: dict) -> None:
-        result["summary_rows"] = self._rebuild_summary_rows(result)
         self.results = result
-        self._render_table_rows(result["summary_rows"])
-
-        summary_count = len(result["summary_rows"])
-        session_count = len(result["session_links"])
-        error_count = len(result["errors"])
-
-        status = f"Done. Drivers found: {summary_count}. Sessions processed: {session_count}."
-        if error_count:
-            status += f" Warnings: {error_count}."
-            messagebox.showwarning(
-                "Some sessions failed",
-                "\n".join(result["errors"][:10]),
-            )
-
-        self.status_label.config(text=status)
+        self._render_table_rows(result["results"])
         self.run_button.config(state=tk.NORMAL)
-        self.export_summary_button.config(state=tk.NORMAL)
-        self.export_raw_button.config(state=tk.NORMAL)
+        self.export_button.config(state=tk.NORMAL)
+        self.status_label.config(
+            text=f"Loaded {result['session_name']} — {len(result['results'])} drivers ranked."
+        )
 
     def _on_error(self, message: str) -> None:
-        self.status_label.config(text="Failed. See error dialog.")
         self.run_button.config(state=tk.NORMAL)
-        messagebox.showerror("Attendance check failed", message)
+        self.export_button.config(state=tk.DISABLED)
+        self.status_label.config(text="Failed to load session.")
+        messagebox.showerror("Session load failed", message)
 
     def _clear_table(self) -> None:
         for item in self.table.get_children():
@@ -188,19 +225,17 @@ class AttendanceApp:
 
     def _render_table_rows(self, rows: list[dict]) -> None:
         self._clear_table()
-        for row in rows:
-            meets_minimum = row["meets_minimum"] == "Yes"
-            tag = "made_cut" if meets_minimum else "missed_cut"
+        for idx, row in enumerate(rows):
+            tag = "row_even" if idx % 2 else "row_odd"
             self.table.insert(
                 "",
                 tk.END,
                 values=(
+                    row["position"],
                     row["driver"],
-                    row["counted_practices"],
-                    row["fastest_time_overall"],
-                    row["total_laps_overall"],
-                    row["meets_minimum"],
-                    row["counted_sessions"],
+                    row["kart_number"],
+                    row["best_lap"],
+                    row["laps"],
                 ),
                 tags=(tag,),
             )
@@ -209,37 +244,27 @@ class AttendanceApp:
         if not self.results:
             return
 
+        rows = list(self.results["results"])
         descending = self.sort_descending.get(column, False)
-        rows = list(self.results["summary_rows"])
 
-        if column == "driver":
-            key_fn = lambda row: row["driver"].lower()
-        elif column in {"counted_practices", "total_laps_overall"}:
+        if column in {"position", "laps"}:
             key_fn = lambda row: int(row[column])
-        elif column == "fastest_time_overall":
+        elif column == "best_lap":
             key_fn = lambda row: self._parse_time_for_sort(row[column])
-        elif column == "meets_minimum":
-            key_fn = lambda row: 1 if row[column] == "Yes" else 0
         else:
-            key_fn = lambda row: row[column].lower()
+            key_fn = lambda row: str(row[column]).lower()
 
         rows.sort(key=key_fn, reverse=descending)
         self.sort_descending[column] = not descending
-        self.results["summary_rows"] = rows
+        self.results["results"] = rows
         self._render_table_rows(rows)
 
         sort_order = "descending" if descending else "ascending"
-        self.status_label.config(
-            text=f"Sorted by {column.replace('_', ' ')} ({sort_order})."
-        )
+        self.status_label.config(text=f"Sorted by {column.replace('_', ' ')} ({sort_order}).")
 
     @staticmethod
     def _parse_time_for_sort(value: str) -> float:
-        raw = value.strip()
-        if not raw:
-            return float("inf")
-
-        cleaned = raw.replace(",", ".")
+        cleaned = value.strip().replace(",", ".")
         if ":" in cleaned:
             parts = cleaned.split(":")
             try:
@@ -250,71 +275,37 @@ class AttendanceApp:
             except ValueError:
                 return float("inf")
         try:
-            parsed = float(cleaned)
-            return parsed if parsed > 0 else float("inf")
+            return float(cleaned)
         except ValueError:
             return float("inf")
 
-    def export_summary(self) -> None:
+    def export_results(self) -> None:
         if not self.results:
             return
-        rows = self.results["summary_rows"]
+
         path = filedialog.asksaveasfilename(
-            title="Save summary CSV",
+            title="Save session results CSV",
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            initialfile="attendance_summary.csv",
+            initialfile="session_results.csv",
         )
         if not path:
             return
 
-        self._write_csv(
-            path,
-            rows,
-            [
-                "kart_number",
-                "driver",
-                "kart_number",
-                "counted_practices",
-                "fastest_time_overall",
-                "total_laps_overall",
-                "meets_minimum",
-                "counted_sessions",
-            ],
-        )
-        messagebox.showinfo("Saved", f"Summary saved to {Path(path).name}")
-
-    def export_raw(self) -> None:
-        if not self.results:
-            return
-        rows = self.results["raw_rows"]
-        path = filedialog.asksaveasfilename(
-            title="Save raw records CSV",
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv")],
-            initialfile="attendance_raw_records.csv",
-        )
-        if not path:
-            return
-
-        self._write_csv(
-            path,
-            rows,
-            ["session_name", "session_url", "driver", "kart_number", "time", "laps"],
-        )
-        messagebox.showinfo("Saved", f"Raw records saved to {Path(path).name}")
-
-    @staticmethod
-    def _write_csv(path: str, rows: list[dict], fieldnames: list[str]) -> None:
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+        with open(path, "w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(
+                file,
+                fieldnames=["position", "driver", "kart_number", "best_lap", "laps"],
+            )
             writer.writeheader()
-            writer.writerows(rows)
+            writer.writerows(self.results["results"])
+
+        messagebox.showinfo("Saved", f"Session results saved to {Path(path).name}")
 
 
 def main() -> None:
     root = tk.Tk()
-    app = AttendanceApp(root)
+    SessionTrackerApp(root)
     root.mainloop()
 
 
