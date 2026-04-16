@@ -6,6 +6,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from openpyxl import Workbook
+
 from scraper import SpeedhiveScrapeError, collect_event_participation
 
 
@@ -324,17 +326,6 @@ class SessionTrackerApp:
         rows = [{field: row.get(field, "") for field in export_fields} for row in self.results["results"]]
         output_path = Path(path)
         if output_path.suffix.lower() == ".xlsx":
-            try:
-                from openpyxl import Workbook
-            except ImportError:
-                messagebox.showerror(
-                    "Excel export unavailable",
-                    "Excel export requires the optional 'openpyxl' package.\n"
-                    "Install it with: pip install openpyxl\n"
-                    "Or export as CSV instead.",
-                )
-                return
-
             workbook = Workbook()
             sheet = workbook.active
             sheet.title = "Participation"

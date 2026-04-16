@@ -18,7 +18,7 @@ For each driver with a recorded lap time, the app shows:
 - Set minimum required practices (default `4`).
 - Only counts attendance when a driver has a recorded time in a session.
 - Sort any column in the results table.
-- Export participation results to CSV (or `.xlsx` when optional `openpyxl` is installed).
+- Export participation results to Excel (`.xlsx`) or CSV.
 - Purdue-inspired black and gold UI styling.
 
 ## Setup
