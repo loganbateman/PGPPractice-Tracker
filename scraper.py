@@ -156,33 +156,6 @@ def _extract_kart_number(row: dict) -> str:
     )
 
 
-def _looks_like_kart_number(value: str) -> bool:
-    cleaned = _clean_text(value)
-    if not cleaned:
-        return False
-    # Common values that indicate a kart/grid number instead of a driver name.
-    return bool(re.fullmatch(r"#?\d{1,4}[a-zA-Z]?", cleaned))
-
-
-def _extract_driver_name(row: dict) -> str:
-    """
-    Prefer human-name fields; avoid mistakenly using numeric competitor IDs.
-    """
-    prioritized_fields = ("Driver", "Name", "Participant", "Competitor")
-    values = {field: _clean_text(row.get(field) or "") for field in prioritized_fields}
-
-    for field in prioritized_fields:
-        value = values[field]
-        if not value:
-            continue
-        if field == "Competitor" and _looks_like_kart_number(value):
-            continue
-        return value
-
-    # Last fallback: if all we have is Competitor, keep it.
-    return values["Competitor"]
-
-
 def _parse_single_session_csv(session_url: str) -> List[SessionAttendance]:
     session_id = _extract_session_id(session_url)
     if not session_id:
@@ -201,7 +174,13 @@ def _parse_single_session_csv(session_url: str) -> List[SessionAttendance]:
 
     records: List[SessionAttendance] = []
     for row in csv_rows:
-        driver_name = _extract_driver_name(row)
+        driver_name = _clean_text(
+            row.get("Competitor")
+            or row.get("Driver")
+            or row.get("Name")
+            or row.get("Participant")
+            or ""
+        )
         kart_number = _extract_kart_number(row)
         time_value = _clean_text(row.get("Best Lap") or row.get("Time") or "")
         laps_value = _parse_laps(row.get("Laps") or "0")
