@@ -1,26 +1,24 @@
-# PGP Practice Session Tracker
+# PGP Practice Participation Tracker
 
-A lightweight desktop app (Tkinter) for viewing a **single Speedhive session** and ranking drivers by best lap.
+A lightweight desktop app (Tkinter) that pulls **all practice sessions in a Speedhive event** and summarizes driver participation.
 
-## What's changed
+## What it calculates
 
-This app is now intentionally simplified:
-- No event-level multi-day aggregation.
-- No minimum-practice cutoff logic.
-- One URL in, one session leaderboard out.
+For each driver with a recorded lap time, the app shows:
+- Kart Number
+- Driver
+- Total Laps
+- Session Total Count (how many practice sessions exist in the event)
+- Over Minimum? (Yes/No based on your required minimum, default 4)
+- Sessions Attended (comma-separated session names)
 
 ## Features
 
-- Paste one Speedhive session URL (example: `https://speedhive.mylaps.com/Sessions/14572181`).
-- Pulls official session CSV data from the Speedhive event-results API.
-- Ranks drivers by fastest lap (then laps, then name).
-- Displays:
-  - Position
-  - Driver
-  - Kart number
-  - Best lap
-  - Laps
-- Export current session leaderboard to CSV.
+- Paste one Speedhive **event** URL (example: `https://speedhive.mylaps.com/Events/3453310`).
+- Set minimum required practices (default `4`).
+- Only counts attendance when a driver has a recorded time in a session.
+- Sort any column in the results table.
+- Export participation results to CSV.
 - Purdue-inspired black and gold UI styling.
 
 ## Setup
@@ -41,12 +39,13 @@ python app.py
 
 ```bash
 python - <<'PY'
-from scraper import collect_session_results
+from scraper import collect_event_participation
 
-sample = "https://speedhive.mylaps.com/Sessions/14572181"
-result = collect_session_results(sample)
+sample = "https://speedhive.mylaps.com/Events/3453310"
+result = collect_event_participation(sample, minimum_sessions=4)
 
-print("Session:", result["session_name"])
+print("Event:", result["event_name"])
+print("Practice sessions:", result["total_practice_sessions"])
 print("Drivers:", len(result["results"]))
 print("Top 5:")
 for row in result["results"][:5]:
