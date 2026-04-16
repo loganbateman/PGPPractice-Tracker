@@ -6,19 +6,20 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from scraper import SpeedhiveScrapeError, collect_session_results
+from scraper import SpeedhiveScrapeError, collect_event_participation
 
 
 class SessionTrackerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("PGP Practice Session Tracker")
-        self.root.geometry("1200x760")
-        self.root.minsize(980, 640)
+        self.root.title("PGP Practice Participation Tracker")
+        self.root.geometry("1280x760")
+        self.root.minsize(1040, 640)
 
         self.results: dict | None = None
         self.sort_descending: dict[str, bool] = {}
-        self.session_url_var = tk.StringVar()
+        self.event_url_var = tk.StringVar()
+        self.minimum_sessions_var = tk.StringVar(value="4")
 
         self._configure_theme()
         self._build_ui()
@@ -107,31 +108,45 @@ class SessionTrackerApp:
         card = ttk.Frame(root_frame, style="Card.TFrame", padding=18)
         card.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(card, text="PGP Practice Session Tracker", style="Header.TLabel").grid(
+        ttk.Label(card, text="PGP Practice Participation Tracker", style="Header.TLabel").grid(
             row=0, column=0, sticky="w"
         )
         ttk.Label(
             card,
-            text="Single-session mode: paste one Speedhive session URL and rank drivers by best lap.",
+            text="Use one Speedhive event URL to calculate practice attendance and minimum eligibility.",
             style="Sub.TLabel",
-        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 14))
+        ).grid(row=1, column=0, columnspan=4, sticky="w", pady=(2, 14))
 
-        ttk.Label(card, text="Speedhive Session URL", style="FieldLabel.TLabel").grid(
+        ttk.Label(card, text="Speedhive Event URL", style="FieldLabel.TLabel").grid(
             row=2, column=0, sticky="w"
         )
-        ttk.Entry(card, textvariable=self.session_url_var, width=120).grid(
+        ttk.Entry(card, textvariable=self.event_url_var, width=110).grid(
             row=3, column=0, columnspan=2, sticky="ew", pady=(5, 12)
+        )
+
+        ttk.Label(card, text="Minimum sessions", style="FieldLabel.TLabel").grid(
+            row=2, column=2, sticky="w", padx=(10, 0)
+        )
+        ttk.Entry(card, textvariable=self.minimum_sessions_var, width=12).grid(
+            row=3, column=2, sticky="w", padx=(10, 0), pady=(5, 12)
         )
 
         self.run_button = ttk.Button(
             card,
-            text="Load Session",
+            text="Calculate Attendance",
             style="Modern.TButton",
             command=self.run_check,
         )
-        self.run_button.grid(row=3, column=2, sticky="e", padx=(10, 0))
+        self.run_button.grid(row=3, column=3, sticky="e", padx=(10, 0))
 
-        columns = ("position", "driver", "kart_number", "best_lap", "laps")
+        columns = (
+            "kart_number",
+            "driver",
+            "total_laps",
+            "session_total_count",
+            "over_minimum",
+            "sessions_attended",
+        )
         self.table = ttk.Treeview(
             card,
             columns=columns,
@@ -139,11 +154,12 @@ class SessionTrackerApp:
             style="Modern.Treeview",
             height=16,
         )
-        self.table.column("position", width=90, anchor="center")
-        self.table.column("driver", width=360, anchor="w")
         self.table.column("kart_number", width=120, anchor="center")
-        self.table.column("best_lap", width=140, anchor="center")
-        self.table.column("laps", width=100, anchor="center")
+        self.table.column("driver", width=320, anchor="w")
+        self.table.column("total_laps", width=120, anchor="center")
+        self.table.column("session_total_count", width=170, anchor="center")
+        self.table.column("over_minimum", width=130, anchor="center")
+        self.table.column("sessions_attended", width=560, anchor="w")
 
         for col in columns:
             self.table.heading(
@@ -152,20 +168,20 @@ class SessionTrackerApp:
                 command=lambda c=col: self.sort_table(c),
             )
 
-        self.table.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=(8, 0))
+        self.table.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(8, 0))
         self.table.tag_configure("row_odd", background=self.colors["surface"])
         self.table.tag_configure("row_even", background=self.colors["row_alt"])
 
         scrollbar = ttk.Scrollbar(card, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scrollbar.set)
-        scrollbar.grid(row=4, column=3, sticky="ns", pady=(8, 0))
+        scrollbar.grid(row=4, column=4, sticky="ns", pady=(8, 0))
 
         button_row = ttk.Frame(card, style="Card.TFrame")
-        button_row.grid(row=5, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        button_row.grid(row=5, column=0, columnspan=4, sticky="w", pady=(12, 0))
 
         self.export_button = ttk.Button(
             button_row,
-            text="Export Session CSV",
+            text="Export Participation CSV",
             style="Modern.TButton",
             command=self.export_results,
             state=tk.DISABLED,
@@ -177,25 +193,36 @@ class SessionTrackerApp:
             text="Ready.",
             style="Sub.TLabel",
         )
-        self.status_label.grid(row=6, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        self.status_label.grid(row=6, column=0, columnspan=4, sticky="w", pady=(12, 0))
 
         card.columnconfigure(0, weight=1)
         card.rowconfigure(4, weight=1)
 
     def run_check(self) -> None:
-        session_url = self.session_url_var.get().strip()
-        if not session_url:
-            messagebox.showerror("Missing URL", "Please provide a Speedhive session URL.")
+        event_url = self.event_url_var.get().strip()
+        if not event_url:
+            messagebox.showerror("Missing URL", "Please provide a Speedhive event URL.")
+            return
+
+        try:
+            minimum_sessions = int(self.minimum_sessions_var.get().strip())
+            if minimum_sessions < 1:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid minimum", "Minimum sessions must be a positive integer.")
             return
 
         self.run_button.config(state=tk.DISABLED)
         self.export_button.config(state=tk.DISABLED)
-        self.status_label.config(text="Loading session... this may take a moment.")
+        self.status_label.config(text="Calculating attendance... this may take a moment.")
         self._clear_table()
 
         def worker() -> None:
             try:
-                result = collect_session_results(session_url=session_url)
+                result = collect_event_participation(
+                    event_url=event_url,
+                    minimum_sessions=minimum_sessions,
+                )
                 self.root.after(0, lambda: self._on_success(result))
             except (SpeedhiveScrapeError, ValueError, RuntimeError) as exc:
                 self.root.after(0, lambda: self._on_error(str(exc)))
@@ -210,14 +237,17 @@ class SessionTrackerApp:
         self.run_button.config(state=tk.NORMAL)
         self.export_button.config(state=tk.NORMAL)
         self.status_label.config(
-            text=f"Loaded {result['session_name']} — {len(result['results'])} drivers ranked."
+            text=(
+                f"Loaded {result['event_name']} — {len(result['results'])} drivers across "
+                f"{result['total_practice_sessions']} practice sessions."
+            )
         )
 
     def _on_error(self, message: str) -> None:
         self.run_button.config(state=tk.NORMAL)
         self.export_button.config(state=tk.DISABLED)
-        self.status_label.config(text="Failed to load session.")
-        messagebox.showerror("Session load failed", message)
+        self.status_label.config(text="Failed to calculate attendance.")
+        messagebox.showerror("Attendance calculation failed", message)
 
     def _clear_table(self) -> None:
         for item in self.table.get_children():
@@ -231,11 +261,12 @@ class SessionTrackerApp:
                 "",
                 tk.END,
                 values=(
-                    row["position"],
-                    row["driver"],
                     row["kart_number"],
-                    row["best_lap"],
-                    row["laps"],
+                    row["driver"],
+                    row["total_laps"],
+                    row["session_total_count"],
+                    row["over_minimum"],
+                    row["sessions_attended"],
                 ),
                 tags=(tag,),
             )
@@ -247,10 +278,8 @@ class SessionTrackerApp:
         rows = list(self.results["results"])
         descending = self.sort_descending.get(column, False)
 
-        if column in {"position", "laps"}:
+        if column in {"total_laps", "session_total_count", "sessions_attended_count"}:
             key_fn = lambda row: int(row[column])
-        elif column == "best_lap":
-            key_fn = lambda row: self._parse_time_for_sort(row[column])
         else:
             key_fn = lambda row: str(row[column]).lower()
 
@@ -262,32 +291,15 @@ class SessionTrackerApp:
         sort_order = "descending" if descending else "ascending"
         self.status_label.config(text=f"Sorted by {column.replace('_', ' ')} ({sort_order}).")
 
-    @staticmethod
-    def _parse_time_for_sort(value: str) -> float:
-        cleaned = value.strip().replace(",", ".")
-        if ":" in cleaned:
-            parts = cleaned.split(":")
-            try:
-                if len(parts) == 2:
-                    return int(parts[0]) * 60 + float(parts[1])
-                if len(parts) == 3:
-                    return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-            except ValueError:
-                return float("inf")
-        try:
-            return float(cleaned)
-        except ValueError:
-            return float("inf")
-
     def export_results(self) -> None:
         if not self.results:
             return
 
         path = filedialog.asksaveasfilename(
-            title="Save session results CSV",
+            title="Save participation CSV",
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            initialfile="session_results.csv",
+            initialfile="practice_participation.csv",
         )
         if not path:
             return
@@ -295,12 +307,19 @@ class SessionTrackerApp:
         with open(path, "w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(
                 file,
-                fieldnames=["position", "driver", "kart_number", "best_lap", "laps"],
+                fieldnames=[
+                    "kart_number",
+                    "driver",
+                    "total_laps",
+                    "session_total_count",
+                    "over_minimum",
+                    "sessions_attended",
+                ],
             )
             writer.writeheader()
             writer.writerows(self.results["results"])
 
-        messagebox.showinfo("Saved", f"Session results saved to {Path(path).name}")
+        messagebox.showinfo("Saved", f"Participation results saved to {Path(path).name}")
 
 
 def main() -> None:
