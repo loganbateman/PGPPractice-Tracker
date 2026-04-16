@@ -66,6 +66,9 @@ class AttendanceApp:
             "counted_sessions",
         )
         self.table = ttk.Treeview(frame, columns=columns, show="headings", height=16)
+        # Hide the implicit tree column to prevent the blank tile on the far left.
+        self.table.column("#0", width=0, stretch=False)
+        self.table.heading("#0", text="")
         for col in columns:
             self.table.heading(
                 col,
