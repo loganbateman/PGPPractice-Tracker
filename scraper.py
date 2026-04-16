@@ -45,6 +45,25 @@ def _get_json(url: str, timeout: int = 20) -> dict:
     return response.json()
 
 
+def _get_html(url: str, timeout: int = 20) -> str:
+    response = requests.get(
+        url,
+        timeout=timeout,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml",
+        },
+    )
+    response.raise_for_status()
+    return response.text
+
+
+def _find_session_links(event_html: str, event_url: str) -> List[str]:
+    del event_url  # unused, kept for signature compatibility
+    session_ids = set(re.findall(r"/sessions?/(\d+)", event_html, flags=re.IGNORECASE))
+    return sorted(f"https://speedhive.mylaps.com/sessions/{session_id}" for session_id in session_ids)
+
+
 def _clean_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "")).strip()
 
@@ -167,8 +186,10 @@ def collect_session_results(session_url: str) -> Dict[str, object]:
     if not session_id:
         raise SpeedhiveScrapeError(f"Could not determine session ID from URL: {session_url}")
 
-    session_meta = _get_json(f"{EVENT_RESULTS_API_BASE}/sessions/{session_id}")
-    session_name = _clean_text(session_meta.get("name", "")) or "Unnamed Session"
+    session_name = _clean_text(session_name_hint or "")
+    if not session_name:
+        session_meta = _get_json(f"{EVENT_RESULTS_API_BASE}/sessions/{session_id}")
+        session_name = _clean_text(session_meta.get("name", "")) or "Unnamed Session"
 
     csv_response = requests.get(
         f"{EVENT_RESULTS_API_BASE}/sessions/{session_id}/csv",
