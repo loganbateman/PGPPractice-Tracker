@@ -331,12 +331,15 @@ def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Di
             f"{session['session_name']}: {session['best_lap']}"
             for _, session in sorted_sessions
         ]
+        fastest_lap_session = min(sorted_sessions, key=lambda item: item[1]["best_lap_seconds"], default=None)
+        fastest_lap = fastest_lap_session[1]["best_lap"] if fastest_lap_session else ""
         total_laps = sum(session["laps"] for _, session in sorted_sessions)
         attended_count = len(sessions_attended)
         rows.append(
             {
                 "kart_number": driver["kart_number"],
                 "driver": driver["driver"],
+                "fastest_lap": fastest_lap,
                 "total_laps": total_laps,
                 "over_minimum": "Yes" if attended_count >= minimum_sessions else "No",
                 "sessions_attended": ", ".join(sessions_attended),
