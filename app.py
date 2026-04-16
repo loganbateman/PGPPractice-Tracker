@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import threading
 import tkinter as tk
+from collections import defaultdict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -55,6 +56,7 @@ class AttendanceApp:
         self.session_text.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=(0, 10))
 
         columns = (
+            "kart_number",
             "driver",
             "kart_number",
             "counted_practices",
@@ -71,6 +73,7 @@ class AttendanceApp:
                 command=lambda c=col: self.sort_table(c),
             )
 
+        self.table.column("kart_number", width=90, anchor="center")
         self.table.column("driver", width=220, anchor="w")
         self.table.column("kart_number", width=90, anchor="center")
         self.table.column("counted_practices", width=140, anchor="center")
@@ -150,6 +153,7 @@ class AttendanceApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_success(self, result: dict) -> None:
+        result["summary_rows"] = self._rebuild_summary_rows(result)
         self.results = result
         self._render_table_rows(result["summary_rows"])
 
@@ -265,6 +269,7 @@ class AttendanceApp:
             path,
             rows,
             [
+                "kart_number",
                 "driver",
                 "kart_number",
                 "counted_practices",
