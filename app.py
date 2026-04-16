@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import threading
 import tkinter as tk
-from collections import defaultdict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -233,7 +232,6 @@ class SessionTrackerApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_success(self, result: dict) -> None:
-        result["summary_rows"] = self._rebuild_summary_rows(result)
         self.results = result
         self._render_table_rows(result["results"])
         self.run_button.config(state=tk.NORMAL)
