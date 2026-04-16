@@ -180,7 +180,7 @@ def _normalize_driver_name(row: dict) -> str:
     )
 
 
-def collect_session_results(session_url: str) -> Dict[str, object]:
+def collect_session_results(session_url: str, session_name_hint: str | None = None) -> Dict[str, object]:
     """Collect leaderboard rows for a single Speedhive practice session."""
     session_id = _extract_session_id(session_url)
     if not session_id:
