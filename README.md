@@ -7,10 +7,11 @@ A lightweight desktop app (Tkinter) that pulls **all practice sessions in a Spee
 For each driver with a recorded lap time, the app shows:
 - Kart Number
 - Driver
+- Fast Lap
 - Total Laps
-- Session Total Count (how many practice sessions exist in the event)
+- Session Attendance
 - Over Minimum? (Yes/No based on your required minimum, default 4)
-- Sessions Attended (comma-separated session names)
+- Sessions Attended
 
 ## Features
 
