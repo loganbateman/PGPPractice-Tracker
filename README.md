@@ -27,8 +27,13 @@ For each driver with a recorded lap time, the app shows:
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-# Optional (for native .xlsx export):
-# pip install openpyxl
+```
+
+If you see `ModuleNotFoundError: No module named 'openpyxl'`, your active Python
+environment does not have dependencies installed yet. Re-run:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ## Run

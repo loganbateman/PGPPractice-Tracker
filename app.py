@@ -6,7 +6,10 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from openpyxl import Workbook
+try:
+    from openpyxl import Workbook
+except ModuleNotFoundError:  # pragma: no cover - depends on local environment
+    Workbook = None
 
 from scraper import SpeedhiveScrapeError, collect_event_participation
 
@@ -300,14 +303,20 @@ class SessionTrackerApp:
         if not self.results:
             return
 
+        excel_available = Workbook is not None
+        default_extension = ".xlsx" if excel_available else ".csv"
+        default_filename = (
+            "practice_participation.xlsx" if excel_available else "practice_participation.csv"
+        )
+        filetypes = [("CSV files", "*.csv")]
+        if excel_available:
+            filetypes.insert(0, ("Excel workbook", "*.xlsx"))
+
         path = filedialog.asksaveasfilename(
             title="Save participation results",
-            defaultextension=".xlsx",
-            filetypes=[
-                ("Excel workbook", "*.xlsx"),
-                ("CSV files", "*.csv"),
-            ],
-            initialfile="practice_participation.xlsx",
+            defaultextension=default_extension,
+            filetypes=filetypes,
+            initialfile=default_filename,
         )
         if not path:
             return
@@ -326,6 +335,12 @@ class SessionTrackerApp:
         rows = [{field: row.get(field, "") for field in export_fields} for row in self.results["results"]]
         output_path = Path(path)
         if output_path.suffix.lower() == ".xlsx":
+            if Workbook is None:
+                messagebox.showerror(
+                    "Excel export unavailable",
+                    "openpyxl is not installed. Install it with:\n\npip install openpyxl",
+                )
+                return
             workbook = Workbook()
             sheet = workbook.active
             sheet.title = "Participation"
