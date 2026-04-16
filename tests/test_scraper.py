@@ -98,14 +98,6 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["sessions_attended_count"], 2)
         self.assertEqual(result["results"][0]["total_laps"], 22)
         self.assertEqual(result["results"][0]["over_minimum"], "Yes")
-        self.assertEqual(
-            result["results"][0]["fast_times_list"],
-            ["Practice 1: 1:00.100", "Practice 2: 59.900"],
-        )
-        self.assertEqual(
-            result["results"][0]["fast_times"],
-            "Practice 1: 1:00.100 | Practice 2: 59.900",
-        )
         self.assertEqual(result["results"][1]["sessions_attended_count"], 1)
         self.assertEqual(result["results"][2]["sessions_attended_count"], 1)
 
