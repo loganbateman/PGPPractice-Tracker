@@ -143,6 +143,7 @@ class SessionTrackerApp:
         columns = (
             "kart_number",
             "driver",
+            "fastest_lap",
             "total_laps",
             "sessions_attended_count",
             "over_minimum",
@@ -157,10 +158,11 @@ class SessionTrackerApp:
         )
         self.table.column("kart_number", width=120, anchor="center")
         self.table.column("driver", width=320, anchor="w")
+        self.table.column("fastest_lap", width=120, anchor="center")
         self.table.column("total_laps", width=120, anchor="center")
         self.table.column("sessions_attended_count", width=170, anchor="center")
         self.table.column("over_minimum", width=130, anchor="center")
-        self.table.column("sessions_attended", width=560, anchor="w")
+        self.table.column("sessions_attended", width=430, anchor="w")
 
         for col in columns:
             self.table.heading(
@@ -288,6 +290,7 @@ class SessionTrackerApp:
                 values=(
                     row["kart_number"],
                     row["driver"],
+                    row["fastest_lap"],
                     row["total_laps"],
                     row["sessions_attended_count"],
                     row["over_minimum"],
@@ -363,6 +366,7 @@ class SessionTrackerApp:
                 fieldnames=[
                     "kart_number",
                     "driver",
+                    "fastest_lap",
                     "total_laps",
                     "sessions_attended_count",
                     "over_minimum",

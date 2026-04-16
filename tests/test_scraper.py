@@ -96,10 +96,13 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(result["total_practice_sessions"], 2)
         self.assertEqual([row["driver"] for row in result["results"]], ["Driver A", "Driver B", "Driver C"])
         self.assertEqual(result["results"][0]["sessions_attended_count"], 2)
+        self.assertEqual(result["results"][0]["fastest_lap"], "59.900")
         self.assertEqual(result["results"][0]["total_laps"], 22)
         self.assertEqual(result["results"][0]["over_minimum"], "Yes")
         self.assertEqual(result["results"][1]["sessions_attended_count"], 1)
+        self.assertEqual(result["results"][1]["fastest_lap"], "1:01.200")
         self.assertEqual(result["results"][2]["sessions_attended_count"], 1)
+        self.assertEqual(result["results"][2]["fastest_lap"], "1:03.500")
 
 
 if __name__ == "__main__":
