@@ -58,6 +58,7 @@ class AttendanceApp:
         columns = (
             "kart_number",
             "driver",
+            "kart_number",
             "counted_practices",
             "fastest_time_overall",
             "total_laps_overall",
@@ -77,6 +78,7 @@ class AttendanceApp:
 
         self.table.column("kart_number", width=90, anchor="center")
         self.table.column("driver", width=220, anchor="w")
+        self.table.column("kart_number", width=90, anchor="center")
         self.table.column("counted_practices", width=140, anchor="center")
         self.table.column("fastest_time_overall", width=140, anchor="center")
         self.table.column("total_laps_overall", width=130, anchor="center")
@@ -156,7 +158,7 @@ class AttendanceApp:
     def _on_success(self, result: dict) -> None:
         result["summary_rows"] = self._rebuild_summary_rows(result)
         self.results = result
-        self._render_table_rows(self.results["summary_rows"])
+        self._render_table_rows(result["summary_rows"])
 
         summary_count = len(result["summary_rows"])
         session_count = len(result["session_links"])
@@ -193,7 +195,6 @@ class AttendanceApp:
                 "",
                 tk.END,
                 values=(
-                    row["kart_number"],
                     row["driver"],
                     row["counted_practices"],
                     row["fastest_time_overall"],
@@ -203,79 +204,6 @@ class AttendanceApp:
                 ),
                 tags=(tag,),
             )
-
-    def _rebuild_summary_rows(self, result: dict) -> list[dict]:
-        """
-        Build summary rows from raw rows so displayed columns always align with
-        Kart Number, Driver, Practice Count, Fastest Time, Total Laps, Meets Minimum, Sessions.
-        """
-        minimum_practices = int(result.get("minimum_practices", 1))
-        by_driver_sessions: dict[str, set[str]] = defaultdict(set)
-        by_driver_session_names: dict[str, set[str]] = defaultdict(set)
-        by_driver_laps: dict[str, int] = defaultdict(int)
-        by_driver_kart: dict[str, str] = {}
-        by_driver_fastest_time_text: dict[str, str] = {}
-        by_driver_fastest_seconds: dict[str, float] = {}
-
-        for row in result.get("raw_rows", []):
-            driver = str(row.get("driver", "")).strip()
-            if not driver:
-                continue
-
-            session_url = str(row.get("session_url", "")).strip()
-            session_name = str(row.get("session_name", "")).strip()
-            session_key = f"{session_url}::{session_name}".strip(":")
-            by_driver_sessions[driver].add(session_key)
-            if session_name:
-                by_driver_session_names[driver].add(session_name)
-
-            laps_value = row.get("laps", 0)
-            try:
-                by_driver_laps[driver] += int(laps_value)
-            except (TypeError, ValueError):
-                pass
-
-            kart = str(row.get("kart_number", "")).strip()
-            if kart and driver not in by_driver_kart:
-                by_driver_kart[driver] = kart
-
-            time_text = str(row.get("time", "")).strip()
-            time_seconds = self._parse_time_for_sort(time_text)
-            current_best = by_driver_fastest_seconds.get(driver, float("inf"))
-            if time_seconds < current_best:
-                by_driver_fastest_seconds[driver] = time_seconds
-                by_driver_fastest_time_text[driver] = time_text
-
-        summary_rows: list[dict] = []
-        for driver in by_driver_sessions:
-            count = len(by_driver_sessions[driver])
-            meets_minimum = count >= minimum_practices
-            summary_rows.append(
-                {
-                    "driver": driver,
-                    "kart_number": by_driver_kart.get(driver, ""),
-                    "counted_practices": count,
-                    "fastest_time_overall": by_driver_fastest_time_text.get(driver, ""),
-                    "total_laps_overall": by_driver_laps.get(driver, 0),
-                    "meets_minimum": "Yes" if meets_minimum else "No",
-                    "counted_sessions": " | ".join(sorted(by_driver_session_names[driver])),
-                    "_sort_fastest_seconds": by_driver_fastest_seconds.get(driver, float("inf")),
-                    "_sort_meets_minimum": meets_minimum,
-                }
-            )
-
-        summary_rows.sort(
-            key=lambda row: (
-                not row["_sort_meets_minimum"],
-                row["_sort_fastest_seconds"],
-                -row["counted_practices"],
-                row["driver"].lower(),
-            )
-        )
-        for row in summary_rows:
-            row.pop("_sort_fastest_seconds", None)
-            row.pop("_sort_meets_minimum", None)
-        return summary_rows
 
     def sort_table(self, column: str) -> None:
         if not self.results:
@@ -288,8 +216,6 @@ class AttendanceApp:
             key_fn = lambda row: row["driver"].lower()
         elif column in {"counted_practices", "total_laps_overall"}:
             key_fn = lambda row: int(row[column])
-        elif column == "kart_number":
-            key_fn = lambda row: self._parse_kart_for_sort(row[column])
         elif column == "fastest_time_overall":
             key_fn = lambda row: self._parse_time_for_sort(row[column])
         elif column == "meets_minimum":
@@ -329,16 +255,6 @@ class AttendanceApp:
         except ValueError:
             return float("inf")
 
-    @staticmethod
-    def _parse_kart_for_sort(value: str) -> tuple[int, str]:
-        raw = value.strip()
-        if not raw:
-            return (10**9, "")
-        digits = "".join(ch for ch in raw if ch.isdigit())
-        if digits:
-            return (int(digits), raw.lower())
-        return (10**9 - 1, raw.lower())
-
     def export_summary(self) -> None:
         if not self.results:
             return
@@ -358,6 +274,7 @@ class AttendanceApp:
             [
                 "kart_number",
                 "driver",
+                "kart_number",
                 "counted_practices",
                 "fastest_time_overall",
                 "total_laps_overall",
