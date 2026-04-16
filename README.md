@@ -27,6 +27,8 @@ For each driver with a recorded lap time, the app shows:
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+# Optional (for native .xlsx export):
+# pip install openpyxl
 ```
 
 ## Run
