@@ -222,6 +222,42 @@ def _normalize_manual_links(multiline_value: str) -> List[str]:
     return deduped
 
 
+def _session_count_key(session_name: str, session_url: str) -> str:
+    """
+    Build a session key that keeps similarly named sessions distinct.
+
+    Example:
+      "Practice #6 Saturday - Session 2/3 - Provisional Results"
+    is treated differently from:
+      "Practice #6 Saturday - Session 3/3 - Provisional Results"
+    """
+    cleaned_name = _clean_text(session_name)
+    session_fraction = re.search(
+        r"\bsession\s*(\d+)\s*/\s*(\d+)\b",
+        cleaned_name,
+        flags=re.IGNORECASE,
+    )
+    if not session_fraction:
+        return session_url
+
+    session_number, session_total = session_fraction.groups()
+    return f"{session_url}::session-{session_number}-of-{session_total}"
+
+
+def _session_display_label(session_name: str) -> str:
+    cleaned_name = _clean_text(session_name)
+    session_fraction = re.search(
+        r"\bsession\s*(\d+)\s*/\s*(\d+)\b",
+        cleaned_name,
+        flags=re.IGNORECASE,
+    )
+    if not session_fraction:
+        return cleaned_name
+
+    session_number, session_total = session_fraction.groups()
+    return f"{cleaned_name} [Session {session_number} of {session_total}]"
+
+
 def collect_attendance(
     event_url: str,
     minimum_practices: int = 4,
@@ -253,8 +289,9 @@ def collect_attendance(
             session_records = _parse_single_session(session_url)
             raw_records.extend(session_records)
             for rec in session_records:
-                driver_sessions[rec.driver_name].add(rec.session_url)
-                driver_session_names[rec.driver_name].add(rec.session_name)
+                session_key = _session_count_key(rec.session_name, rec.session_url)
+                driver_sessions[rec.driver_name].add(session_key)
+                driver_session_names[rec.driver_name].add(_session_display_label(rec.session_name))
                 driver_total_laps[rec.driver_name] += rec.laps_value
                 if rec.kart_number and rec.driver_name not in driver_kart_number:
                     driver_kart_number[rec.driver_name] = rec.kart_number
