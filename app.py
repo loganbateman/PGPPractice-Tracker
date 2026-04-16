@@ -6,6 +6,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from openpyxl import Workbook
+
 from scraper import SpeedhiveScrapeError, collect_event_participation
 
 
@@ -20,7 +22,6 @@ class SessionTrackerApp:
         self.sort_descending: dict[str, bool] = {}
         self.event_url_var = tk.StringVar()
         self.minimum_sessions_var = tk.StringVar(value="4")
-        self.selected_driver_var = tk.StringVar()
 
         self._configure_theme()
         self._build_ui()
@@ -184,7 +185,7 @@ class SessionTrackerApp:
 
         self.export_button = ttk.Button(
             button_row,
-            text="Export Participation CSV",
+            text="Export Participation File",
             style="Modern.TButton",
             command=self.export_results,
             state=tk.DISABLED,
@@ -197,28 +198,6 @@ class SessionTrackerApp:
             style="Sub.TLabel",
         )
         self.status_label.grid(row=6, column=0, columnspan=4, sticky="w", pady=(12, 0))
-
-        fast_time_frame = ttk.Frame(card, style="Card.TFrame")
-        fast_time_frame.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(10, 0))
-
-        ttk.Label(fast_time_frame, text="Driver fast times", style="FieldLabel.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
-        self.driver_dropdown = ttk.Combobox(
-            fast_time_frame,
-            textvariable=self.selected_driver_var,
-            state="readonly",
-            width=42,
-        )
-        self.driver_dropdown.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        self.driver_dropdown.bind("<<ComboboxSelected>>", self._on_driver_selected)
-
-        self.fast_times_label = ttk.Label(
-            fast_time_frame,
-            text="Run attendance to load weekly fast times per driver.",
-            style="Sub.TLabel",
-        )
-        self.fast_times_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
         card.columnconfigure(0, weight=1)
         card.rowconfigure(4, weight=1)
@@ -259,7 +238,6 @@ class SessionTrackerApp:
     def _on_success(self, result: dict) -> None:
         self.results = result
         self._render_table_rows(result["results"])
-        self._populate_driver_dropdown(result["results"])
         self.run_button.config(state=tk.NORMAL)
         self.export_button.config(state=tk.NORMAL)
         self.status_label.config(
@@ -273,7 +251,6 @@ class SessionTrackerApp:
         self.run_button.config(state=tk.NORMAL)
         self.export_button.config(state=tk.DISABLED)
         self.status_label.config(text="Failed to calculate attendance.")
-        self._populate_driver_dropdown([])
         messagebox.showerror("Attendance calculation failed", message)
 
     def _clear_table(self) -> None:
@@ -298,34 +275,6 @@ class SessionTrackerApp:
                 ),
                 tags=(tag,),
             )
-
-    def _populate_driver_dropdown(self, rows: list[dict]) -> None:
-        drivers = sorted(row["driver"] for row in rows)
-        self.driver_dropdown["values"] = drivers
-
-        if drivers:
-            self.selected_driver_var.set(drivers[0])
-            self._update_fast_times_text(drivers[0])
-        else:
-            self.selected_driver_var.set("")
-            self.fast_times_label.config(text="Run attendance to load weekly fast times per driver.")
-
-    def _on_driver_selected(self, event: tk.Event) -> None:
-        del event
-        self._update_fast_times_text(self.selected_driver_var.get())
-
-    def _update_fast_times_text(self, driver_name: str) -> None:
-        if not self.results or not driver_name:
-            self.fast_times_label.config(text="No fast-time data available.")
-            return
-
-        for row in self.results["results"]:
-            if row["driver"] == driver_name:
-                fast_times = row.get("fast_times") or "No valid lap times recorded."
-                self.fast_times_label.config(text=fast_times)
-                return
-
-        self.fast_times_label.config(text="No fast-time data available.")
 
     def sort_table(self, column: str) -> None:
         if not self.results:
@@ -352,32 +301,45 @@ class SessionTrackerApp:
             return
 
         path = filedialog.asksaveasfilename(
-            title="Save participation CSV",
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv")],
-            initialfile="practice_participation.csv",
+            title="Save participation results",
+            defaultextension=".xlsx",
+            filetypes=[
+                ("Excel workbook", "*.xlsx"),
+                ("CSV files", "*.csv"),
+            ],
+            initialfile="practice_participation.xlsx",
         )
         if not path:
             return
 
-        with open(path, "w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(
-                file,
-                fieldnames=[
-                    "kart_number",
-                    "driver",
-                    "fastest_lap",
-                    "total_laps",
-                    "sessions_attended_count",
-                    "over_minimum",
-                    "sessions_attended",
-                    "fast_times",
-                ],
-            )
-            writer.writeheader()
-            writer.writerows(self.results["results"])
+        export_fields = [
+            "kart_number",
+            "driver",
+            "fastest_lap",
+            "total_laps",
+            "sessions_attended_count",
+            "over_minimum",
+            "sessions_attended",
+            "fast_times",
+        ]
 
-        messagebox.showinfo("Saved", f"Participation results saved to {Path(path).name}")
+        rows = [{field: row.get(field, "") for field in export_fields} for row in self.results["results"]]
+        output_path = Path(path)
+        if output_path.suffix.lower() == ".xlsx":
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Participation"
+            sheet.append(export_fields)
+            for row in rows:
+                sheet.append([row[field] for field in export_fields])
+            workbook.save(output_path)
+        else:
+            with open(output_path, "w", newline="", encoding="utf-8") as file:
+                writer = csv.DictWriter(file, fieldnames=export_fields)
+                writer.writeheader()
+                writer.writerows(rows)
+
+        messagebox.showinfo("Saved", f"Participation results saved to {output_path.name}")
 
 
 def main() -> None:
