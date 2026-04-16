@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import re
 import csv
 import io
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional
 
 import requests
 
@@ -19,14 +17,15 @@ USER_AGENT = (
 
 
 @dataclass
-class SessionAttendance:
+class SessionResult:
     session_name: str
     session_url: str
+    position: int
     driver_name: str
     kart_number: str
-    time_value: str
-    laps_value: int
-    time_seconds: float
+    best_lap: str
+    laps: int
+    best_lap_seconds: float
 
 
 class SpeedhiveScrapeError(RuntimeError):
@@ -66,7 +65,17 @@ def _find_session_links(event_html: str, event_url: str) -> List[str]:
 
 
 def _clean_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip()
+    return re.sub(r"\s+", " ", (value or "")).strip()
+
+
+def _extract_session_id(session_url: str) -> Optional[str]:
+    match = re.search(r"/sessions?/(\d+)", session_url, flags=re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _extract_event_id(event_url: str) -> Optional[str]:
+    match = re.search(r"/events?/(\d+)", event_url, flags=re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def _is_time_recorded(raw_value: str) -> bool:
@@ -95,39 +104,6 @@ def _is_time_recorded(raw_value: str) -> bool:
     return bool(re.search(r"\d", value))
 
 
-def _extract_event_id(event_url: str) -> Optional[str]:
-    match = re.search(r"/events?/(\d+)", event_url, flags=re.IGNORECASE)
-    return match.group(1) if match else None
-
-
-def _extract_session_id(session_url: str) -> Optional[str]:
-    match = re.search(r"/sessions?/(\d+)", session_url, flags=re.IGNORECASE)
-    return match.group(1) if match else None
-
-
-def _find_session_links_from_api(event_url: str) -> Tuple[List[str], Dict[str, str]]:
-    event_id = _extract_event_id(event_url)
-    if not event_id:
-        return [], {}
-
-    endpoint = f"{EVENT_RESULTS_API_BASE}/events/{event_id}?sessions=true"
-    payload = _get_json(endpoint)
-    sessions = payload.get("sessions", {})
-    groups = sessions.get("groups", []) if isinstance(sessions, dict) else []
-
-    links: Set[str] = set()
-    session_name_by_url: Dict[str, str] = {}
-    for group in groups:
-        for session in group.get("sessions", []):
-            session_id = session.get("id")
-            if session_id:
-                session_url = f"https://speedhive.mylaps.com/sessions/{session_id}"
-                links.add(session_url)
-                session_name = _clean_text(str(session.get("name") or ""))
-                if session_name:
-                    session_name_by_url[session_url] = session_name
-
-    return sorted(links), session_name_by_url
 def _parse_time_to_seconds(raw_value: str) -> Optional[float]:
     value = _clean_text(raw_value)
     if not _is_time_recorded(value):
@@ -140,78 +116,72 @@ def _parse_time_to_seconds(raw_value: str) -> Optional[float]:
         parts = value.split(":")
         try:
             if len(parts) == 2:
-                minutes = int(parts[0])
-                seconds = float(parts[1])
-                parsed = minutes * 60 + seconds
-                return parsed if parsed > 0 else None
+                return int(parts[0]) * 60 + float(parts[1])
             if len(parts) == 3:
-                hours = int(parts[0])
-                minutes = int(parts[1])
-                seconds = float(parts[2])
-                parsed = hours * 3600 + minutes * 60 + seconds
-                return parsed if parsed > 0 else None
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
         except ValueError:
             return None
 
     try:
         parsed = float(value)
-        if parsed <= 0:
-            return None
-        return parsed
+        return parsed if parsed > 0 else None
     except ValueError:
         return None
 
 
 def _parse_laps(raw_value: str) -> int:
     match = re.search(r"\d+", _clean_text(raw_value))
-    if not match:
-        return 0
-    return int(match.group())
+    return int(match.group()) if match else 0
 
 
 def _extract_kart_number(row: dict) -> str:
+    # Speedhive sometimes exposes the kart identifier as "Start Number".
+    # We still normalize it into our canonical `kart_number` output field.
     return _clean_text(
         row.get("Kart")
         or row.get("Kart #")
+        or row.get("Kart Number")
+        or row.get("KartNumber")
+        or row.get("Kart Num")
+        or row.get("Start Number")
+        or row.get("Start No")
+        or row.get("Start No.")
+        or row.get("Start #")
         or row.get("Kart No")
+        or row.get("Kart No.")
         or row.get("Number")
+        or row.get("Kart # ")
+        or row.get("KartNo")
         or row.get("No.")
         or row.get("#")
         or ""
     )
 
 
-def _looks_like_kart_number(value: str) -> bool:
-    cleaned = _clean_text(value)
-    if not cleaned:
-        return False
-    # Common values that indicate a kart/grid number instead of a driver name.
-    return bool(re.fullmatch(r"#?\d{1,4}[a-zA-Z]?", cleaned))
+def _flatten_sessions(payload: dict) -> List[dict]:
+    sessions = list(payload.get("sessions") or [])
+    groups = list(payload.get("groups") or [])
+
+    while groups:
+        group = groups.pop()
+        sessions.extend(group.get("sessions") or [])
+        groups.extend(group.get("subGroups") or [])
+
+    return sessions
 
 
-def _extract_driver_name(row: dict) -> str:
-    """
-    Prefer human-name fields; avoid mistakenly using numeric competitor IDs.
-    """
-    prioritized_fields = ("Driver", "Name", "Participant", "Competitor")
-    values = {field: _clean_text(row.get(field) or "") for field in prioritized_fields}
-
-    for field in prioritized_fields:
-        value = values[field]
-        if not value:
-            continue
-        if field == "Competitor" and _looks_like_kart_number(value):
-            continue
-        return value
-
-    # Last fallback: if all we have is Competitor, keep it.
-    return values["Competitor"]
+def _normalize_driver_name(row: dict) -> str:
+    return _clean_text(
+        row.get("Competitor")
+        or row.get("Driver")
+        or row.get("Name")
+        or row.get("Participant")
+        or ""
+    )
 
 
-def _parse_single_session_csv(
-    session_url: str,
-    session_name_hint: Optional[str] = None,
-) -> List[SessionAttendance]:
+def collect_session_results(session_url: str) -> Dict[str, object]:
+    """Collect leaderboard rows for a single Speedhive practice session."""
     session_id = _extract_session_id(session_url)
     if not session_id:
         raise SpeedhiveScrapeError(f"Could not determine session ID from URL: {session_url}")
@@ -227,216 +197,149 @@ def _parse_single_session_csv(
         headers={"User-Agent": USER_AGENT},
     )
     csv_response.raise_for_status()
+
     csv_rows = list(csv.DictReader(io.StringIO(csv_response.text)))
 
-    records: List[SessionAttendance] = []
+    results: List[SessionResult] = []
     for row in csv_rows:
-        driver_name = _extract_driver_name(row)
-        kart_number = _extract_kart_number(row)
-        time_value = _clean_text(row.get("Best Lap") or row.get("Time") or "")
-        laps_value = _parse_laps(row.get("Laps") or "0")
-        time_seconds = _parse_time_to_seconds(time_value)
-
-        if not driver_name or time_seconds is None:
+        driver_name = _clean_text(
+            row.get("Competitor")
+            or row.get("Driver")
+            or row.get("Name")
+            or row.get("Participant")
+            or ""
+        )
+        if not driver_name:
             continue
 
-        records.append(
-            SessionAttendance(
+        best_lap = _clean_text(row.get("Best Lap") or row.get("Time") or "")
+        best_lap_seconds = _parse_time_to_seconds(best_lap)
+        if best_lap_seconds is None:
+            continue
+
+        results.append(
+            SessionResult(
                 session_name=session_name,
                 session_url=session_url,
+                position=0,
                 driver_name=driver_name,
-                kart_number=kart_number,
-                time_value=time_value,
-                laps_value=laps_value,
-                time_seconds=time_seconds,
+                kart_number=_extract_kart_number(row),
+                best_lap=best_lap,
+                laps=_parse_laps(row.get("Laps") or "0"),
+                best_lap_seconds=best_lap_seconds,
             )
         )
 
-    return records
+    results.sort(key=lambda r: (r.best_lap_seconds, -r.laps, r.driver_name.lower()))
+    for idx, result in enumerate(results, start=1):
+        result.position = idx
 
-
-def _parse_single_session(
-    session_url: str,
-    session_name_hint: Optional[str] = None,
-) -> List[SessionAttendance]:
-    try:
-        return _parse_single_session_csv(session_url, session_name_hint=session_name_hint)
-    except requests.RequestException:
-        return _parse_single_session_html(session_url)
-
-
-def _parse_single_session_html(session_url: str) -> List[SessionAttendance]:
-    raise SpeedhiveScrapeError(
-        f"Could not retrieve CSV/API data for session {session_url}. "
-        "HTML fallback parsing is not available for this session."
-    )
-
-
-def _normalize_manual_links(multiline_value: str) -> List[str]:
-    links = [line.strip() for line in multiline_value.splitlines() if line.strip()]
-    deduped: List[str] = []
-    seen: Set[str] = set()
-    for link in links:
-        if link not in seen:
-            seen.add(link)
-            deduped.append(link)
-    return deduped
-
-
-def _session_count_key(session_name: str, session_url: str) -> str:
-    """
-    Build a session key that keeps similarly named sessions distinct.
-
-    Example:
-      "Practice #6 Saturday - Session 2/3 - Provisional Results"
-    is treated differently from:
-      "Practice #6 Saturday - Session 3/3 - Provisional Results"
-    """
-    cleaned_name = _clean_text(session_name)
-    session_fraction = re.search(
-        r"\bsession\s*(\d+)\s*/\s*(\d+)\b",
-        cleaned_name,
-        flags=re.IGNORECASE,
-    )
-    if not session_fraction:
-        return session_url
-
-    session_number, session_total = session_fraction.groups()
-    return f"{session_url}::session-{session_number}-of-{session_total}"
-
-
-def _session_display_label(session_name: str) -> str:
-    cleaned_name = _clean_text(session_name)
-    session_fraction = re.search(
-        r"\bsession\s*(\d+)\s*/\s*(\d+)\b",
-        cleaned_name,
-        flags=re.IGNORECASE,
-    )
-    if not session_fraction:
-        return cleaned_name
-
-    session_number, session_total = session_fraction.groups()
-    return f"{cleaned_name} [Session {session_number} of {session_total}]"
-
-
-def collect_attendance(
-    event_url: str,
-    minimum_practices: int = 4,
-    manual_session_links_text: str = "",
-) -> Dict[str, object]:
-    event_url = event_url.strip()
-    if not event_url:
-        raise ValueError("An event URL is required.")
-
-    session_name_hints: Dict[str, str] = {}
-    if manual_session_links_text.strip():
-        session_links = _normalize_manual_links(manual_session_links_text)
-    else:
-        try:
-            session_links, session_name_hints = _find_session_links_from_api(event_url)
-        except requests.RequestException:
-            session_links, session_name_hints = [], {}
-        if not session_links:
-            event_html = _get_html(event_url)
-            session_links = _find_session_links(event_html, event_url)
-
-    driver_sessions: Dict[str, Set[str]] = defaultdict(set)
-    driver_session_names: Dict[str, Set[str]] = defaultdict(set)
-    driver_total_laps: Dict[str, int] = defaultdict(int)
-    driver_kart_number: Dict[str, str] = {}
-    driver_fastest_seconds: Dict[str, float] = {}
-    driver_fastest_time_text: Dict[str, str] = {}
-    raw_records: List[SessionAttendance] = []
-    errors: List[str] = []
-
-    max_workers = min(8, max(1, len(session_links)))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(
-                _parse_single_session,
-                session_url,
-                session_name_hints.get(session_url),
-            ): session_url
-            for session_url in session_links
-        }
-        for future in as_completed(futures):
-            session_url = futures[future]
-            try:
-                session_records = future.result()
-            except requests.RequestException as exc:
-                errors.append(f"Failed to fetch {session_url}: {exc}")
-                continue
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                errors.append(f"Failed to parse {session_url}: {exc}")
-                continue
-
-            raw_records.extend(session_records)
-            for rec in session_records:
-                session_key = _session_count_key(rec.session_name, rec.session_url)
-                driver_sessions[rec.driver_name].add(session_key)
-                driver_session_names[rec.driver_name].add(_session_display_label(rec.session_name))
-                driver_total_laps[rec.driver_name] += rec.laps_value
-                if rec.kart_number and rec.driver_name not in driver_kart_number:
-                    driver_kart_number[rec.driver_name] = rec.kart_number
-                current_best = driver_fastest_seconds.get(rec.driver_name)
-                if current_best is None or rec.time_seconds < current_best:
-                    driver_fastest_seconds[rec.driver_name] = rec.time_seconds
-                    driver_fastest_time_text[rec.driver_name] = rec.time_value
-
-    summary_rows = []
-    for driver_name in sorted(driver_sessions):
-        count = len(driver_sessions[driver_name])
-        sessions = sorted(driver_session_names[driver_name])
-        fastest_seconds = driver_fastest_seconds.get(driver_name, float("inf"))
-        meets_minimum = count >= minimum_practices
-        summary_rows.append(
+    return {
+        "session_url": session_url,
+        "session_name": session_name,
+        "results": [
             {
-                "driver": driver_name,
-                "kart_number": driver_kart_number.get(driver_name, ""),
-                "counted_practices": count,
-                "fastest_time_overall": driver_fastest_time_text.get(driver_name, ""),
-                "total_laps_overall": driver_total_laps.get(driver_name, 0),
-                "meets_minimum": "Yes" if meets_minimum else "No",
-                "counted_sessions": " | ".join(sessions),
-                "_sort_fastest_seconds": fastest_seconds,
-                "_sort_meets_minimum": meets_minimum,
+                "position": row.position,
+                "driver": row.driver_name,
+                "kart_number": row.kart_number,
+                "best_lap": row.best_lap,
+                "laps": row.laps,
+            }
+            for row in results
+        ],
+    }
+
+
+def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Dict[str, object]:
+    """Collect event-wide practice participation summary for each driver."""
+    event_id = _extract_event_id(event_url)
+    if not event_id:
+        raise SpeedhiveScrapeError(f"Could not determine event ID from URL: {event_url}")
+
+    event_meta = _get_json(f"{EVENT_RESULTS_API_BASE}/events/{event_id}")
+    event_name = _clean_text(event_meta.get("name", "")) or f"Event {event_id}"
+
+    sessions_payload = _get_json(f"{EVENT_RESULTS_API_BASE}/events/{event_id}/sessions")
+    all_sessions = _flatten_sessions(sessions_payload)
+    practice_sessions = [session for session in all_sessions if _clean_text(session.get("type", "")).lower() == "practice"]
+
+    if not practice_sessions:
+        raise SpeedhiveScrapeError("No practice sessions were found for this event.")
+
+    drivers: dict[str, dict] = {}
+    for session in practice_sessions:
+        session_id = session.get("id")
+        session_name = _clean_text(session.get("name", "")) or f"Session {session_id}"
+        if not session_id:
+            continue
+
+        csv_response = requests.get(
+            f"{EVENT_RESULTS_API_BASE}/sessions/{session_id}/csv",
+            timeout=20,
+            headers={"User-Agent": USER_AGENT},
+        )
+        csv_response.raise_for_status()
+        csv_rows = list(csv.DictReader(io.StringIO(csv_response.text)))
+
+        for row in csv_rows:
+            driver_name = _normalize_driver_name(row)
+            if not driver_name:
+                continue
+
+            best_lap = _clean_text(row.get("Best Lap") or row.get("Time") or "")
+            if _parse_time_to_seconds(best_lap) is None:
+                continue
+
+            key = driver_name.lower()
+            entry = drivers.setdefault(
+                key,
+                {
+                    "driver": driver_name,
+                    "kart_number": "",
+                    "total_laps": 0,
+                    "sessions_attended": [],
+                    "session_ids_attended": set(),
+                },
+            )
+            kart_number = _extract_kart_number(row)
+            if not entry["kart_number"] and kart_number:
+                entry["kart_number"] = kart_number
+
+            if session_id in entry["session_ids_attended"]:
+                continue
+
+            entry["session_ids_attended"].add(session_id)
+            entry["sessions_attended"].append(session_name)
+            entry["total_laps"] += _parse_laps(row.get("Laps") or "0")
+
+    total_practice_sessions = len(practice_sessions)
+    rows = []
+    for driver in drivers.values():
+        attended_count = len(driver["sessions_attended"])
+        rows.append(
+            {
+                "kart_number": driver["kart_number"],
+                "driver": driver["driver"],
+                "total_laps": driver["total_laps"],
+                "over_minimum": "Yes" if attended_count >= minimum_sessions else "No",
+                "sessions_attended": ", ".join(driver["sessions_attended"]),
+                "sessions_attended_count": attended_count,
             }
         )
 
-    # Default ranking requested by coaches:
-    # 1) Qualified drivers first (made the cut), then non-qualified.
-    # 2) Within each group, fastest lap first.
-    # 3) Tie-break by practice count (higher first), then name.
-    summary_rows.sort(
-        key=lambda row: (
-            not row["_sort_meets_minimum"],
-            row["_sort_fastest_seconds"],
-            -row["counted_practices"],
-            row["driver"].lower(),
+    rows.sort(
+        key=lambda r: (
+            0 if r["over_minimum"] == "Yes" else 1,
+            -r["sessions_attended_count"],
+            -r["total_laps"],
+            r["driver"].lower(),
         )
     )
 
-    for row in summary_rows:
-        row.pop("_sort_fastest_seconds", None)
-        row.pop("_sort_meets_minimum", None)
-
-    raw_rows = [
-        {
-            "session_name": record.session_name,
-            "session_url": record.session_url,
-            "driver": record.driver_name,
-            "kart_number": record.kart_number,
-            "time": record.time_value,
-            "laps": record.laps_value,
-        }
-        for record in raw_records
-    ]
-
     return {
         "event_url": event_url,
-        "minimum_practices": minimum_practices,
-        "session_links": session_links,
-        "summary_rows": summary_rows,
-        "raw_rows": raw_rows,
-        "errors": errors,
+        "event_name": event_name,
+        "minimum_sessions": minimum_sessions,
+        "total_practice_sessions": total_practice_sessions,
+        "results": rows,
     }
