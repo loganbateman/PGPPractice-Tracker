@@ -116,11 +116,23 @@ def _parse_laps(raw_value: str) -> int:
 
 
 def _extract_kart_number(row: dict) -> str:
+    # Speedhive sometimes exposes the kart identifier as "Start Number".
+    # We still normalize it into our canonical `kart_number` output field.
     return _clean_text(
         row.get("Kart")
         or row.get("Kart #")
+        or row.get("Kart Number")
+        or row.get("KartNumber")
+        or row.get("Kart Num")
+        or row.get("Start Number")
+        or row.get("Start No")
+        or row.get("Start No.")
+        or row.get("Start #")
         or row.get("Kart No")
+        or row.get("Kart No.")
         or row.get("Number")
+        or row.get("Kart # ")
+        or row.get("KartNo")
         or row.get("No.")
         or row.get("#")
         or ""
@@ -288,7 +300,6 @@ def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Di
                 "kart_number": driver["kart_number"],
                 "driver": driver["driver"],
                 "total_laps": driver["total_laps"],
-                "session_total_count": total_practice_sessions,
                 "over_minimum": "Yes" if attended_count >= minimum_sessions else "No",
                 "sessions_attended": ", ".join(driver["sessions_attended"]),
                 "sessions_attended_count": attended_count,

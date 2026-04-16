@@ -143,7 +143,7 @@ class SessionTrackerApp:
             "kart_number",
             "driver",
             "total_laps",
-            "session_total_count",
+            "sessions_attended_count",
             "over_minimum",
             "sessions_attended",
         )
@@ -157,7 +157,7 @@ class SessionTrackerApp:
         self.table.column("kart_number", width=120, anchor="center")
         self.table.column("driver", width=320, anchor="w")
         self.table.column("total_laps", width=120, anchor="center")
-        self.table.column("session_total_count", width=170, anchor="center")
+        self.table.column("sessions_attended_count", width=170, anchor="center")
         self.table.column("over_minimum", width=130, anchor="center")
         self.table.column("sessions_attended", width=560, anchor="w")
 
@@ -264,7 +264,7 @@ class SessionTrackerApp:
                     row["kart_number"],
                     row["driver"],
                     row["total_laps"],
-                    row["session_total_count"],
+                    row["sessions_attended_count"],
                     row["over_minimum"],
                     row["sessions_attended"],
                 ),
@@ -278,7 +278,7 @@ class SessionTrackerApp:
         rows = list(self.results["results"])
         descending = self.sort_descending.get(column, False)
 
-        if column in {"total_laps", "session_total_count", "sessions_attended_count"}:
+        if column in {"total_laps", "sessions_attended_count"}:
             key_fn = lambda row: int(row[column])
         else:
             key_fn = lambda row: str(row[column]).lower()
@@ -311,7 +311,7 @@ class SessionTrackerApp:
                     "kart_number",
                     "driver",
                     "total_laps",
-                    "session_total_count",
+                    "sessions_attended_count",
                     "over_minimum",
                     "sessions_attended",
                 ],
