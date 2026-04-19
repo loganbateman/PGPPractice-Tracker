@@ -11,13 +11,13 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - depends on local environment
     Workbook = None
 
-from scraper import SpeedhiveScrapeError, collect_event_participation
+from scraper import SpeedhiveScrapeError, collect_participation
 
 
 class SessionTrackerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("PGP Practice Participation Tracker")
+        self.root.title("PGP Session Participation Tracker")
         self.root.geometry("1280x760")
         self.root.minsize(1040, 640)
 
@@ -113,16 +113,16 @@ class SessionTrackerApp:
         card = ttk.Frame(root_frame, style="Card.TFrame", padding=18)
         card.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(card, text="PGP Practice Participation Tracker", style="Header.TLabel").grid(
+        ttk.Label(card, text="PGP Session Participation Tracker", style="Header.TLabel").grid(
             row=0, column=0, sticky="w"
         )
         ttk.Label(
             card,
-            text="Use one Speedhive event URL to calculate practice attendance and minimum eligibility.",
+            text="Use Speedhive event or session URLs to calculate attendance eligibility.",
             style="Sub.TLabel",
         ).grid(row=1, column=0, columnspan=4, sticky="w", pady=(2, 14))
 
-        ttk.Label(card, text="Speedhive Event URL", style="FieldLabel.TLabel").grid(
+        ttk.Label(card, text="Speedhive Event or Session URL", style="FieldLabel.TLabel").grid(
             row=2, column=0, sticky="w"
         )
         ttk.Entry(card, textvariable=self.event_url_var, width=110).grid(
@@ -143,6 +143,26 @@ class SessionTrackerApp:
             command=self.run_check,
         )
         self.run_button.grid(row=3, column=3, sticky="e", padx=(10, 0))
+
+        ttk.Label(
+            card,
+            text="Additional Session URLs or IDs (optional, one per line)",
+            style="FieldLabel.TLabel",
+        ).grid(row=4, column=0, columnspan=4, sticky="w")
+        self.session_urls_text = tk.Text(
+            card,
+            height=4,
+            width=110,
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            insertbackground=self.colors["gold_bright"],
+            relief=tk.FLAT,
+            padx=8,
+            pady=8,
+            wrap=tk.WORD,
+            font=("Segoe UI", 10),
+        )
+        self.session_urls_text.grid(row=5, column=0, columnspan=4, sticky="ew", pady=(5, 12))
 
         columns = (
             "kart_number",
@@ -175,16 +195,16 @@ class SessionTrackerApp:
                 command=lambda c=col: self.sort_table(c),
             )
 
-        self.table.grid(row=4, column=0, columnspan=4, sticky="nsew", pady=(8, 0))
+        self.table.grid(row=6, column=0, columnspan=4, sticky="nsew", pady=(8, 0))
         self.table.tag_configure("row_odd", background=self.colors["surface"])
         self.table.tag_configure("row_even", background=self.colors["row_alt"])
 
         scrollbar = ttk.Scrollbar(card, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scrollbar.set)
-        scrollbar.grid(row=4, column=4, sticky="ns", pady=(8, 0))
+        scrollbar.grid(row=6, column=4, sticky="ns", pady=(8, 0))
 
         button_row = ttk.Frame(card, style="Card.TFrame")
-        button_row.grid(row=5, column=0, columnspan=4, sticky="w", pady=(12, 0))
+        button_row.grid(row=7, column=0, columnspan=4, sticky="w", pady=(12, 0))
 
         self.export_button = ttk.Button(
             button_row,
@@ -200,15 +220,19 @@ class SessionTrackerApp:
             text="Ready.",
             style="Sub.TLabel",
         )
-        self.status_label.grid(row=6, column=0, columnspan=4, sticky="w", pady=(12, 0))
+        self.status_label.grid(row=8, column=0, columnspan=4, sticky="w", pady=(12, 0))
 
         card.columnconfigure(0, weight=1)
-        card.rowconfigure(4, weight=1)
+        card.rowconfigure(6, weight=1)
 
     def run_check(self) -> None:
         event_url = self.event_url_var.get().strip()
-        if not event_url:
-            messagebox.showerror("Missing URL", "Please provide a Speedhive event URL.")
+        session_urls = self.session_urls_text.get("1.0", tk.END).strip()
+        if not event_url and not session_urls:
+            messagebox.showerror(
+                "Missing URL",
+                "Please provide a Speedhive event/session URL or at least one session URL/ID.",
+            )
             return
 
         try:
@@ -226,9 +250,10 @@ class SessionTrackerApp:
 
         def worker() -> None:
             try:
-                result = collect_event_participation(
-                    event_url=event_url,
+                result = collect_participation(
+                    event_url=event_url or None,
                     minimum_sessions=minimum_sessions,
+                    session_urls=session_urls or None,
                 )
                 self.root.after(0, lambda: self._on_success(result))
             except (SpeedhiveScrapeError, ValueError, RuntimeError) as exc:
@@ -246,7 +271,7 @@ class SessionTrackerApp:
         self.status_label.config(
             text=(
                 f"Loaded {result['event_name']} — {len(result['results'])} drivers across "
-                f"{result['total_practice_sessions']} practice sessions."
+                f"{result['total_sessions']} sessions."
             )
         )
 
@@ -306,7 +331,7 @@ class SessionTrackerApp:
         excel_available = Workbook is not None
         default_extension = ".xlsx" if excel_available else ".csv"
         default_filename = (
-            "practice_participation.xlsx" if excel_available else "practice_participation.csv"
+            "session_participation.xlsx" if excel_available else "session_participation.csv"
         )
         filetypes = [("CSV files", "*.csv")]
         if excel_available:

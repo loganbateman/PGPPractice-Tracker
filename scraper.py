@@ -4,7 +4,7 @@ import csv
 import io
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import requests
 
@@ -26,6 +26,13 @@ class SessionResult:
     best_lap: str
     laps: int
     best_lap_seconds: float
+
+
+@dataclass(frozen=True)
+class SessionSource:
+    session_id: str
+    session_name: str
+    session_url: str
 
 
 class SpeedhiveScrapeError(RuntimeError):
@@ -69,11 +76,19 @@ def _clean_text(value: str) -> str:
 
 
 def _extract_session_id(session_url: str) -> Optional[str]:
+    session_url = _clean_text(session_url)
+    if re.fullmatch(r"\d+", session_url):
+        return session_url
+
     match = re.search(r"/sessions?/(\d+)", session_url, flags=re.IGNORECASE)
     return match.group(1) if match else None
 
 
 def _extract_event_id(event_url: str) -> Optional[str]:
+    event_url = _clean_text(event_url)
+    if re.fullmatch(r"\d+", event_url):
+        return event_url
+
     match = re.search(r"/events?/(\d+)", event_url, flags=re.IGNORECASE)
     return match.group(1) if match else None
 
@@ -180,8 +195,107 @@ def _normalize_driver_name(row: dict) -> str:
     )
 
 
+def _session_url(session_id: str) -> str:
+    return f"https://speedhive.mylaps.com/sessions/{session_id}"
+
+
+def _split_session_entries(session_urls: str | Iterable[str] | None) -> List[str]:
+    if session_urls is None:
+        return []
+
+    if isinstance(session_urls, str):
+        raw_entries = re.split(r"[\s,;]+", session_urls)
+    else:
+        raw_entries = []
+        for entry in session_urls:
+            raw_entries.extend(re.split(r"[\s,;]+", str(entry)))
+
+    return [_clean_text(entry) for entry in raw_entries if _clean_text(entry)]
+
+
+def _build_event_session_sources(event_id: str) -> List[SessionSource]:
+    sessions_payload = _get_json(f"{EVENT_RESULTS_API_BASE}/events/{event_id}/sessions")
+    all_sessions = _flatten_sessions(sessions_payload)
+    sources: List[SessionSource] = []
+
+    for session in all_sessions:
+        session_id = session.get("id")
+        if not session_id:
+            continue
+
+        session_id_str = str(session_id)
+        session_name = _clean_text(session.get("name", "")) or f"Session {session_id_str}"
+        sources.append(
+            SessionSource(
+                session_id=session_id_str,
+                session_name=session_name,
+                session_url=_session_url(session_id_str),
+            )
+        )
+
+    return sources
+
+
+def _build_manual_session_source(session_id: str) -> SessionSource:
+    session_meta = _get_json(f"{EVENT_RESULTS_API_BASE}/sessions/{session_id}")
+    session_name = _clean_text(session_meta.get("name", "")) or f"Session {session_id}"
+    return SessionSource(
+        session_id=session_id,
+        session_name=session_name,
+        session_url=_session_url(session_id),
+    )
+
+
+def _collect_session_sources(
+    event_url: str | None,
+    session_urls: str | Iterable[str] | None,
+) -> tuple[str, str, List[SessionSource]]:
+    event_name = "Selected Sessions"
+    canonical_event_url = ""
+    sources: List[SessionSource] = []
+    seen_session_ids: set[str] = set()
+    manual_session_entries = _split_session_entries(session_urls)
+
+    for entry in _split_session_entries(event_url):
+        event_id = _extract_event_id(entry)
+        if not event_id:
+            session_id = _extract_session_id(entry)
+            if not session_id:
+                raise SpeedhiveScrapeError(f"Could not determine event or session ID from: {entry}")
+            manual_session_entries.append(entry)
+            continue
+
+        if not canonical_event_url:
+            canonical_event_url = f"https://speedhive.mylaps.com/events/{event_id}"
+        event_meta = _get_json(f"{EVENT_RESULTS_API_BASE}/events/{event_id}")
+        if event_name == "Selected Sessions":
+            event_name = _clean_text(event_meta.get("name", "")) or f"Event {event_id}"
+
+        for source in _build_event_session_sources(event_id):
+            if source.session_id in seen_session_ids:
+                continue
+            sources.append(source)
+            seen_session_ids.add(source.session_id)
+
+    for entry in manual_session_entries:
+        session_id = _extract_session_id(entry)
+        if not session_id:
+            raise SpeedhiveScrapeError(f"Could not determine session ID from: {entry}")
+
+        if session_id in seen_session_ids:
+            continue
+        source = _build_manual_session_source(session_id)
+        sources.append(source)
+        seen_session_ids.add(session_id)
+
+    if not sources:
+        raise SpeedhiveScrapeError("No sessions were found. Provide an event URL or at least one session URL/ID.")
+
+    return canonical_event_url, event_name, sources
+
+
 def collect_session_results(session_url: str, session_name_hint: str | None = None) -> Dict[str, object]:
-    """Collect leaderboard rows for a single Speedhive practice session."""
+    """Collect leaderboard rows for a single Speedhive session."""
     session_id = _extract_session_id(session_url)
     if not session_id:
         raise SpeedhiveScrapeError(f"Could not determine session ID from URL: {session_url}")
@@ -250,36 +364,20 @@ def collect_session_results(session_url: str, session_name_hint: str | None = No
     }
 
 
-def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Dict[str, object]:
-    """Collect event-wide practice participation summary for each driver."""
-    event_id = _extract_event_id(event_url)
-    if not event_id:
-        raise SpeedhiveScrapeError(f"Could not determine event ID from URL: {event_url}")
+def collect_participation(
+    event_url: str | None = None,
+    minimum_sessions: int = 4,
+    session_urls: str | Iterable[str] | None = None,
+) -> Dict[str, object]:
+    """Collect participation summary across event sessions and optional manual sessions."""
+    canonical_event_url, event_name, session_sources = _collect_session_sources(event_url, session_urls)
 
-    event_meta = _get_json(f"{EVENT_RESULTS_API_BASE}/events/{event_id}")
-    event_name = _clean_text(event_meta.get("name", "")) or f"Event {event_id}"
-
-    sessions_payload = _get_json(f"{EVENT_RESULTS_API_BASE}/events/{event_id}/sessions")
-    all_sessions = _flatten_sessions(sessions_payload)
-    practice_sessions = [session for session in all_sessions if _clean_text(session.get("type", "")).lower() == "practice"]
-
-    if not practice_sessions:
-        raise SpeedhiveScrapeError("No practice sessions were found for this event.")
-
-    session_order = {
-        str(session.get("id")): index for index, session in enumerate(practice_sessions) if session.get("id")
-    }
+    session_order = {source.session_id: index for index, source in enumerate(session_sources)}
 
     drivers: dict[str, dict] = {}
-    for session in practice_sessions:
-        session_id = session.get("id")
-        session_id_str = str(session_id) if session_id else ""
-        session_name = _clean_text(session.get("name", "")) or f"Session {session_id}"
-        if not session_id:
-            continue
-
+    for source in session_sources:
         csv_response = requests.get(
-            f"{EVENT_RESULTS_API_BASE}/sessions/{session_id}/csv",
+            f"{EVENT_RESULTS_API_BASE}/sessions/{source.session_id}/csv",
             timeout=20,
             headers={"User-Agent": USER_AGENT},
         )
@@ -310,16 +408,17 @@ def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Di
                 entry["kart_number"] = kart_number
 
             laps = _parse_laps(row.get("Laps") or "0")
-            existing_session = entry["sessions"].get(session_id_str)
+            existing_session = entry["sessions"].get(source.session_id)
             if not existing_session or best_lap_seconds < existing_session["best_lap_seconds"]:
-                entry["sessions"][session_id_str] = {
-                    "session_name": session_name,
+                entry["sessions"][source.session_id] = {
+                    "session_name": source.session_name,
+                    "session_url": source.session_url,
                     "best_lap": best_lap,
                     "best_lap_seconds": best_lap_seconds,
                     "laps": laps,
                 }
 
-    total_practice_sessions = len(practice_sessions)
+    total_sessions = len(session_sources)
     rows = []
     for driver in drivers.values():
         sorted_sessions = sorted(
@@ -359,9 +458,31 @@ def collect_event_participation(event_url: str, minimum_sessions: int = 4) -> Di
     )
 
     return {
-        "event_url": event_url,
+        "event_url": canonical_event_url,
         "event_name": event_name,
         "minimum_sessions": minimum_sessions,
-        "total_practice_sessions": total_practice_sessions,
+        "total_sessions": total_sessions,
+        "total_practice_sessions": total_sessions,
+        "session_sources": [
+            {
+                "session_id": source.session_id,
+                "session_name": source.session_name,
+                "session_url": source.session_url,
+            }
+            for source in session_sources
+        ],
         "results": rows,
     }
+
+
+def collect_event_participation(
+    event_url: str,
+    minimum_sessions: int = 4,
+    session_urls: str | Iterable[str] | None = None,
+) -> Dict[str, object]:
+    """Collect event-wide participation summary for every timed session type."""
+    return collect_participation(
+        event_url=event_url,
+        minimum_sessions=minimum_sessions,
+        session_urls=session_urls,
+    )
