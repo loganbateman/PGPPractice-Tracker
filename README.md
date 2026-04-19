@@ -1,6 +1,6 @@
-# PGP Practice Participation Tracker
+# PGP Session Participation Tracker
 
-A lightweight desktop app (Tkinter) that pulls **all practice sessions in a Speedhive event** and summarizes driver participation.
+A lightweight desktop app (Tkinter) that pulls Speedhive event sessions and optional individual session URLs, then summarizes driver participation.
 
 ## What it calculates
 
@@ -15,8 +15,10 @@ For each driver with a recorded lap time, the app shows:
 
 ## Features
 
-- Paste one Speedhive **event** URL (example: `https://speedhive.mylaps.com/Events/3453310`).
-- Set minimum required practices (default `4`).
+- Paste a Speedhive **event** URL (example: `https://speedhive.mylaps.com/events/2978694`).
+- Optionally paste individual Speedhive **session** URLs or IDs to include in the comparison (example: `https://speedhive.mylaps.com/sessions/11963004`).
+- Event imports include practice, qualifying, race, and other timed session types.
+- Set minimum required sessions (default `4`).
 - Only counts attendance when a driver has a recorded time in a session.
 - Sort any column in the results table.
 - Export participation results to Excel (`.xlsx`) or CSV.
@@ -47,13 +49,16 @@ python app.py
 
 ```bash
 python - <<'PY'
-from scraper import collect_event_participation
+from scraper import collect_participation
 
-sample = "https://speedhive.mylaps.com/Events/3453310"
-result = collect_event_participation(sample, minimum_sessions=4)
+event_url = "https://speedhive.mylaps.com/events/2978694"
+session_urls = """
+https://speedhive.mylaps.com/sessions/11963004
+"""
+result = collect_participation(event_url, minimum_sessions=4, session_urls=session_urls)
 
 print("Event:", result["event_name"])
-print("Practice sessions:", result["total_practice_sessions"])
+print("Sessions:", result["total_sessions"])
 print("Drivers:", len(result["results"]))
 print("Top 5:")
 for row in result["results"][:5]:
