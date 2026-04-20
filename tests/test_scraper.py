@@ -157,6 +157,39 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["over_minimum"], "Yes")
         self.assertEqual(result["results"][1]["sessions_attended"], "Race Final")
 
+    def test_collect_participation_accepts_session_url_in_primary_input(self) -> None:
+        qualifying_csv = "\n".join(
+            [
+                "Pos,Start Number,Competitor,Class,Diff,Laps,Best Lap,Best Lap No.,Best Speed",
+                "1,42,Carson Bowers,,0.000,11,24.616,3,39.457 mi/h",
+                "2,72,Dylan White,,0.210,11,24.826,7,39.123 mi/h",
+                "3,67,No Time Driver,,0.000,-,0.000,-,-",
+            ]
+        )
+
+        def fake_get(url: str, **kwargs):
+            del kwargs
+            if url.endswith("/sessions/11963214"):
+                return _FakeResponse(json_data={"name": "Afternoon Qualifications (Heats 10-17)"})
+            if url.endswith("/sessions/11963214/csv"):
+                return _FakeResponse(text=qualifying_csv)
+            self.fail(f"Unexpected URL call: {url}")
+
+        with patch.object(scraper.requests, "get", side_effect=fake_get):
+            result = scraper.collect_participation(
+                event_url="https://speedhive.mylaps.com/sessions/11963214",
+                minimum_sessions=1,
+            )
+
+        self.assertEqual(result["event_name"], "Selected Sessions")
+        self.assertEqual(result["total_sessions"], 1)
+        self.assertEqual(result["session_sources"][0]["session_id"], "11963214")
+        self.assertEqual([row["driver"] for row in result["results"]], ["Carson Bowers", "Dylan White"])
+        self.assertEqual(result["results"][0]["kart_number"], "42")
+        self.assertEqual(result["results"][0]["fastest_lap"], "24.616")
+        self.assertEqual(result["results"][0]["total_laps"], 11)
+        self.assertEqual(result["results"][0]["sessions_attended"], "Afternoon Qualifications (Heats 10-17)")
+
 
 if __name__ == "__main__":
     unittest.main()

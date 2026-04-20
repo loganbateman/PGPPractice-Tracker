@@ -250,20 +250,26 @@ def _collect_session_sources(
     event_url: str | None,
     session_urls: str | Iterable[str] | None,
 ) -> tuple[str, str, List[SessionSource]]:
-    event_url = _clean_text(event_url or "")
     event_name = "Selected Sessions"
-    canonical_event_url = event_url
+    canonical_event_url = ""
     sources: List[SessionSource] = []
     seen_session_ids: set[str] = set()
+    manual_session_entries = _split_session_entries(session_urls)
 
-    if event_url:
-        event_id = _extract_event_id(event_url)
+    for entry in _split_session_entries(event_url):
+        event_id = _extract_event_id(entry)
         if not event_id:
-            raise SpeedhiveScrapeError(f"Could not determine event ID from URL: {event_url}")
+            session_id = _extract_session_id(entry)
+            if not session_id:
+                raise SpeedhiveScrapeError(f"Could not determine event or session ID from: {entry}")
+            manual_session_entries.append(entry)
+            continue
 
-        canonical_event_url = f"https://speedhive.mylaps.com/events/{event_id}"
+        if not canonical_event_url:
+            canonical_event_url = f"https://speedhive.mylaps.com/events/{event_id}"
         event_meta = _get_json(f"{EVENT_RESULTS_API_BASE}/events/{event_id}")
-        event_name = _clean_text(event_meta.get("name", "")) or f"Event {event_id}"
+        if event_name == "Selected Sessions":
+            event_name = _clean_text(event_meta.get("name", "")) or f"Event {event_id}"
 
         for source in _build_event_session_sources(event_id):
             if source.session_id in seen_session_ids:
@@ -271,7 +277,7 @@ def _collect_session_sources(
             sources.append(source)
             seen_session_ids.add(source.session_id)
 
-    for entry in _split_session_entries(session_urls):
+    for entry in manual_session_entries:
         session_id = _extract_session_id(entry)
         if not session_id:
             raise SpeedhiveScrapeError(f"Could not determine session ID from: {entry}")

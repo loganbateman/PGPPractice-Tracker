@@ -15,8 +15,8 @@ For each driver with a recorded lap time, the app shows:
 
 ## Features
 
-- Paste a Speedhive **event** URL (example: `https://speedhive.mylaps.com/events/2978694`).
-- Optionally paste individual Speedhive **session** URLs or IDs to include in the comparison (example: `https://speedhive.mylaps.com/sessions/11963004`).
+- Paste a Speedhive **event** URL (example: `https://speedhive.mylaps.com/events/2978694`) or a single **session** URL in the main URL field.
+- Optionally paste more Speedhive **session** URLs or IDs to include in the comparison (examples: `https://speedhive.mylaps.com/sessions/11963004`, `https://speedhive.mylaps.com/sessions/11963214`).
 - Event imports include practice, qualifying, race, and other timed session types.
 - Set minimum required sessions (default `4`).
 - Only counts attendance when a driver has a recorded time in a session.
