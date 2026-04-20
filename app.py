@@ -118,11 +118,11 @@ class SessionTrackerApp:
         )
         ttk.Label(
             card,
-            text="Use a Speedhive event URL and/or individual session URLs to calculate attendance eligibility.",
+            text="Use Speedhive event or session URLs to calculate attendance eligibility.",
             style="Sub.TLabel",
         ).grid(row=1, column=0, columnspan=4, sticky="w", pady=(2, 14))
 
-        ttk.Label(card, text="Speedhive Event URL (optional)", style="FieldLabel.TLabel").grid(
+        ttk.Label(card, text="Speedhive Event or Session URL", style="FieldLabel.TLabel").grid(
             row=2, column=0, sticky="w"
         )
         ttk.Entry(card, textvariable=self.event_url_var, width=110).grid(
@@ -231,7 +231,7 @@ class SessionTrackerApp:
         if not event_url and not session_urls:
             messagebox.showerror(
                 "Missing URL",
-                "Please provide a Speedhive event URL or at least one session URL/ID.",
+                "Please provide a Speedhive event/session URL or at least one session URL/ID.",
             )
             return
 
